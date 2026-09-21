@@ -1,0 +1,31 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; background: #f6f7f9; color: #1c1e21; }
+.layout { display: flex; min-height: 100vh; }
+.sidebar { width: 200px; background: #10233f; color: #fff; padding: 16px; display: flex; flex-direction: column; gap: 6px; }
+.sidebar h2 { font-size: 16px; margin: 0 0 12px; }
+.sidebar a { color: #c8d4e6; text-decoration: none; padding: 6px 8px; border-radius: 4px; font-size: 14px; }
+.sidebar a.active { background: #1d3a63; color: #fff; }
+.logout { margin-top: auto; background: none; border: 1px solid #456; color: #c8d4e6; padding: 6px; border-radius: 4px; cursor: pointer; }
+.content { flex: 1; padding: 20px; overflow-x: auto; }
+h1 { font-size: 20px; margin: 0 0 16px; }
+h2 { font-size: 16px; margin: 20px 0 8px; }
+table { border-collapse: collapse; width: 100%; background: #fff; font-size: 13px; }
+th, td { border: 1px solid #e3e6ea; padding: 6px 8px; text-align: left; vertical-align: top; }
+th { background: #eef1f5; }
+.cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.card { background: #fff; border: 1px solid #e3e6ea; border-radius: 6px; padding: 12px 16px; min-width: 140px; }
+.card .n { font-size: 22px; font-weight: 600; }
+.card .l { font-size: 12px; color: #667; }
+button { padding: 5px 10px; border: 1px solid #c9ced6; background: #fff; border-radius: 4px; cursor: pointer; font-size: 13px; }
+button.primary { background: #1d6f42; color: #fff; border-color: #1d6f42; }
+button.danger { background: #a32020; color: #fff; border-color: #a32020; }
+input, select { padding: 5px 8px; border: 1px solid #c9ced6; border-radius: 4px; font-size: 13px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 11px; background: #eef1f5; }
+.badge.ok { background: #d9f2e2; color: #14663a; }
+.badge.warn { background: #fdf0d5; color: #7a5300; }
+.badge.bad { background: #fbe0e0; color: #8a1c1c; }
+.panel { background: #fff; border: 1px solid #e3e6ea; border-radius: 6px; padding: 12px 16px; margin-bottom: 12px; }
+pre { background: #f2f4f7; padding: 8px; border-radius: 4px; font-size: 12px; overflow-x: auto; }
+img.kyc { max-width: 220px; border: 1px solid #ddd; border-radius: 4px; margin-right: 8px; }
+.muted { color: #778; font-size: 12px; }

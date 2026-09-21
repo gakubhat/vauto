@@ -1,0 +1,533 @@
+{
+  "_note": "Single source of truth for the flow diagrams. Edit this, then run: node scripts/gen-diagrams.mjs",
+  "rider": {
+    "initial": "awaiting_language",
+    "states": {
+      "awaiting_language": "New number - choose Kannada or English",
+      "awaiting_role": "Choose rider or driver",
+      "awaiting_name": "Signup step 1 - name",
+      "idle": "Nothing in progress",
+      "awaiting_pickup_location": "Booking step 1 - pickup",
+      "awaiting_drop_location": "Booking step 2 - destination",
+      "awaiting_trip_confirm": "Confirm card - book now or schedule",
+      "awaiting_schedule_day": "Schedule - which day",
+      "awaiting_schedule_hour": "Schedule - which hour",
+      "collecting_quotes": "Trip is open, quotes arriving",
+      "trip_assigned": "Driver on the way",
+      "ride_in_progress": "Riding",
+      "awaiting_completion_confirm": "Did the driver drop you",
+      "awaiting_fare_confirm": "Quoted versus paid, only if enabled",
+      "awaiting_rating": "Rate the driver",
+      "awaiting_cancel_confirm": "Confirm cancellation",
+      "awaiting_retry_choice": "Trip expired - try again or change",
+      "awaiting_cancel_reason": "Cancel - pick a reason",
+      "awaiting_cancel_reason_text": "Cancel - type the reason"
+    },
+    "transitions": [
+      {
+        "from": "[*]",
+        "to": "awaiting_language",
+        "action": "first message from a new number"
+      },
+      {
+        "from": "awaiting_language",
+        "to": "awaiting_role",
+        "action": "taps Kannada or English"
+      },
+      {
+        "from": "awaiting_language",
+        "to": "awaiting_language",
+        "action": "anything else - re-prompt"
+      },
+      {
+        "from": "awaiting_role",
+        "to": "awaiting_name",
+        "action": "taps Rider"
+      },
+      {
+        "from": "awaiting_role",
+        "to": "awaiting_role",
+        "action": "anything else - re-prompt"
+      },
+      {
+        "from": "idle",
+        "to": "awaiting_pickup_location",
+        "action": "types auto, hi or book"
+      },
+      {
+        "from": "idle",
+        "to": "awaiting_drop_location",
+        "action": "sends a location - used as pickup"
+      },
+      {
+        "from": "idle",
+        "to": "awaiting_language",
+        "action": "types language"
+      },
+      {
+        "from": "idle",
+        "to": "awaiting_pickup_location",
+        "action": "taps Book an auto"
+      },
+      {
+        "from": "idle",
+        "to": "trip_assigned",
+        "action": "taps Accept on a quote"
+      },
+      {
+        "from": "idle",
+        "to": "collecting_quotes",
+        "action": "has an open trip - shows its status"
+      },
+      {
+        "from": "idle",
+        "to": "ride_in_progress",
+        "action": "has an in-progress trip - shows its status"
+      },
+      {
+        "from": "idle",
+        "to": "idle",
+        "action": "anything else - help menu"
+      },
+      {
+        "from": "awaiting_pickup_location",
+        "to": "awaiting_drop_location",
+        "action": "sends location or types area"
+      },
+      {
+        "from": "awaiting_drop_location",
+        "to": "awaiting_trip_confirm",
+        "action": "sends location or types area"
+      },
+      {
+        "from": "awaiting_trip_confirm",
+        "to": "collecting_quotes",
+        "action": "taps Book now"
+      },
+      {
+        "from": "awaiting_trip_confirm",
+        "to": "awaiting_schedule_day",
+        "action": "taps Schedule"
+      },
+      {
+        "from": "awaiting_trip_confirm",
+        "to": "awaiting_pickup_location",
+        "action": "taps Change pickup"
+      },
+      {
+        "from": "awaiting_trip_confirm",
+        "to": "awaiting_drop_location",
+        "action": "taps Change drop"
+      },
+      {
+        "from": "awaiting_schedule_day",
+        "to": "awaiting_schedule_hour",
+        "action": "taps Today or Tomorrow"
+      },
+      {
+        "from": "awaiting_schedule_day",
+        "to": "awaiting_schedule_day",
+        "action": "anything else - re-prompt"
+      },
+      {
+        "from": "awaiting_schedule_hour",
+        "to": "collecting_quotes",
+        "action": "picks an hour"
+      },
+      {
+        "from": "awaiting_schedule_hour",
+        "to": "awaiting_schedule_hour",
+        "action": "anything else - re-prompt"
+      },
+      {
+        "from": "collecting_quotes",
+        "to": "trip_assigned",
+        "action": "taps Accept on a quote"
+      },
+      {
+        "from": "collecting_quotes",
+        "to": "trip_assigned",
+        "action": "window closes - cheapest auto-accepted"
+      },
+      {
+        "from": "collecting_quotes",
+        "to": "awaiting_cancel_confirm",
+        "action": "taps Cancel"
+      },
+      {
+        "from": "collecting_quotes",
+        "to": "awaiting_retry_choice",
+        "action": "window closes with no quotes"
+      },
+      {
+        "from": "collecting_quotes",
+        "to": "collecting_quotes",
+        "action": "anything else - shows quote count"
+      },
+      {
+        "from": "awaiting_retry_choice",
+        "to": "collecting_quotes",
+        "action": "taps Try again - same pickup and drop"
+      },
+      {
+        "from": "awaiting_retry_choice",
+        "to": "awaiting_pickup_location",
+        "action": "taps Change details"
+      },
+      {
+        "from": "trip_assigned",
+        "to": "ride_in_progress",
+        "action": "driver enters the 4-digit code"
+      },
+      {
+        "from": "trip_assigned",
+        "to": "awaiting_cancel_confirm",
+        "action": "taps Cancel"
+      },
+      {
+        "from": "trip_assigned",
+        "to": "collecting_quotes",
+        "action": "driver cancels - trip reopens"
+      },
+      {
+        "from": "trip_assigned",
+        "to": "trip_assigned",
+        "action": "anything else - shows trip status"
+      },
+      {
+        "from": "ride_in_progress",
+        "to": "awaiting_completion_confirm",
+        "action": "driver sends DONE"
+      },
+      {
+        "from": "ride_in_progress",
+        "to": "ride_in_progress",
+        "action": "anything else - cancel refused"
+      },
+      {
+        "from": "awaiting_completion_confirm",
+        "to": "awaiting_fare_confirm",
+        "action": "taps Yes and fare check is enabled"
+      },
+      {
+        "from": "awaiting_completion_confirm",
+        "to": "awaiting_rating",
+        "action": "taps Yes and fare check is off"
+      },
+      {
+        "from": "awaiting_completion_confirm",
+        "to": "idle",
+        "action": "taps No - trip disputed"
+      },
+      {
+        "from": "awaiting_fare_confirm",
+        "to": "awaiting_rating",
+        "action": "taps Yes, Paid more or Paid less"
+      },
+      {
+        "from": "awaiting_rating",
+        "to": "idle",
+        "action": "taps 1 to 5 stars"
+      },
+      {
+        "from": "awaiting_rating",
+        "to": "awaiting_rating",
+        "action": "anything else - re-prompt"
+      },
+      {
+        "from": "awaiting_cancel_confirm",
+        "to": "awaiting_cancel_reason",
+        "action": "taps Yes - asked for a reason"
+      },
+      {
+        "from": "awaiting_cancel_confirm",
+        "to": "collecting_quotes",
+        "action": "taps No"
+      },
+      {
+        "from": "awaiting_cancel_reason",
+        "to": "awaiting_cancel_reason_text",
+        "action": "taps Other"
+      },
+      {
+        "from": "awaiting_cancel_reason",
+        "to": "awaiting_cancel_reason",
+        "action": "anything else - re-prompt"
+      },
+      {
+        "from": "awaiting_cancel_reason_text",
+        "to": "awaiting_cancel_reason_text",
+        "action": "empty - re-prompt"
+      },
+      {
+        "from": "awaiting_cancel_reason",
+        "to": "idle",
+        "action": "picks a reason - trip cancelled"
+      },
+      {
+        "from": "awaiting_cancel_reason_text",
+        "to": "idle",
+        "action": "types a reason - trip cancelled"
+      }
+    ]
+  },
+  "driver": {
+    "initial": "awaiting_language",
+    "states": {
+      "awaiting_language": "New number - choose Kannada or English",
+      "awaiting_role": "Choose rider or driver",
+      "awaiting_driver_name": "Signup step 1 - name",
+      "awaiting_vehicle_number": "Signup step 2 - auto number",
+      "awaiting_base_location": "Signup step 3 - where you wait",
+      "awaiting_radius": "Signup step 4 - coverage radius",
+      "awaiting_kyc_aadhaar_front": "KYC step 1 - Aadhaar front",
+      "awaiting_kyc_aadhaar_back": "KYC step 2 - Aadhaar back",
+      "awaiting_kyc_selfie": "KYC step 3 - selfie",
+      "idle": "Available - receives leads",
+      "awaiting_quote_amount": "Entering a price for one trip",
+      "awaiting_trip_pick": "Several open trips - which one",
+      "trip_assigned": "Won a trip, heading to pickup",
+      "awaiting_ride_otp": "Arrived, entering the rider code",
+      "ride_in_progress": "Riding",
+      "awaiting_rider_rating": "Rate the rider",
+      "awaiting_cancel_confirm": "Confirm cancellation",
+      "awaiting_base_confirm": "Confirm new waiting location",
+      "awaiting_cancel_reason": "Cancel - pick a reason",
+      "awaiting_cancel_reason_text": "Cancel - type the reason",
+      "en_route": "Started towards the pickup"
+    },
+    "transitions": [
+      {
+        "from": "[*]",
+        "to": "awaiting_language",
+        "action": "first message from a new number"
+      },
+      {
+        "from": "awaiting_language",
+        "to": "awaiting_role",
+        "action": "taps Kannada or English"
+      },
+      {
+        "from": "awaiting_language",
+        "to": "awaiting_language",
+        "action": "anything else - re-prompt"
+      },
+      {
+        "from": "awaiting_role",
+        "to": "awaiting_driver_name",
+        "action": "taps Driver"
+      },
+      {
+        "from": "awaiting_role",
+        "to": "awaiting_role",
+        "action": "anything else - re-prompt"
+      },
+      {
+        "from": "awaiting_driver_name",
+        "to": "awaiting_vehicle_number",
+        "action": "types a name"
+      },
+      {
+        "from": "awaiting_vehicle_number",
+        "to": "awaiting_base_location",
+        "action": "types the auto number"
+      },
+      {
+        "from": "awaiting_base_location",
+        "to": "awaiting_radius",
+        "action": "sends location or types area"
+      },
+      {
+        "from": "awaiting_radius",
+        "to": "awaiting_kyc_aadhaar_front",
+        "action": "taps a radius"
+      },
+      {
+        "from": "awaiting_radius",
+        "to": "awaiting_radius",
+        "action": "anything else - re-prompt"
+      },
+      {
+        "from": "awaiting_kyc_aadhaar_front",
+        "to": "awaiting_kyc_aadhaar_back",
+        "action": "sends photo or taps Skip"
+      },
+      {
+        "from": "awaiting_kyc_aadhaar_back",
+        "to": "awaiting_kyc_selfie",
+        "action": "sends photo or taps Skip"
+      },
+      {
+        "from": "awaiting_kyc_selfie",
+        "to": "idle",
+        "action": "sends photo or taps Skip - now pending approval"
+      },
+      {
+        "from": "idle",
+        "to": "awaiting_quote_amount",
+        "action": "taps Quote on a lead"
+      },
+      {
+        "from": "idle",
+        "to": "awaiting_quote_amount",
+        "action": "types an amount with one open trip"
+      },
+      {
+        "from": "idle",
+        "to": "awaiting_trip_pick",
+        "action": "types an amount with several open trips"
+      },
+      {
+        "from": "awaiting_trip_pick",
+        "to": "awaiting_quote_amount",
+        "action": "picks a trip"
+      },
+      {
+        "from": "awaiting_quote_amount",
+        "to": "idle",
+        "action": "types a valid amount - quote sent"
+      },
+      {
+        "from": "awaiting_quote_amount",
+        "to": "awaiting_quote_amount",
+        "action": "invalid amount - re-prompt"
+      },
+      {
+        "from": "awaiting_quote_amount",
+        "to": "idle",
+        "action": "trip taken or expired"
+      },
+      {
+        "from": "idle",
+        "to": "en_route",
+        "action": "taps I am on the way - rider told",
+        "from_": "idle"
+      },
+      {
+        "from": "awaiting_ride_otp",
+        "to": "ride_in_progress",
+        "action": "enters the correct 4-digit code"
+      },
+      {
+        "from": "awaiting_ride_otp",
+        "to": "awaiting_ride_otp",
+        "action": "wrong code - re-prompt"
+      },
+      {
+        "from": "awaiting_ride_otp",
+        "to": "idle",
+        "action": "ten wrong attempts - contact office"
+      },
+      {
+        "from": "ride_in_progress",
+        "to": "awaiting_rider_rating",
+        "action": "sends DONE and the rider confirms"
+      },
+      {
+        "from": "ride_in_progress",
+        "to": "ride_in_progress",
+        "action": "anything else - send DONE"
+      },
+      {
+        "from": "awaiting_rider_rating",
+        "to": "idle",
+        "action": "taps 1 to 5 stars"
+      },
+      {
+        "from": "awaiting_rider_rating",
+        "to": "awaiting_rider_rating",
+        "action": "anything else - re-prompt"
+      },
+      {
+        "from": "idle",
+        "to": "awaiting_cancel_confirm",
+        "action": "types cancel with an active trip"
+      },
+      {
+        "from": "awaiting_cancel_confirm",
+        "to": "awaiting_cancel_reason",
+        "action": "taps Yes - asked for a reason"
+      },
+      {
+        "from": "awaiting_cancel_confirm",
+        "to": "trip_assigned",
+        "action": "taps No"
+      },
+      {
+        "from": "idle",
+        "to": "awaiting_base_confirm",
+        "action": "sends a location"
+      },
+      {
+        "from": "awaiting_base_confirm",
+        "to": "idle",
+        "action": "taps Yes - location updated, or No"
+      },
+      {
+        "from": "idle",
+        "to": "awaiting_language",
+        "action": "types language"
+      },
+      {
+        "from": "idle",
+        "to": "idle",
+        "action": "not approved - told to wait"
+      },
+      {
+        "from": "idle",
+        "to": "idle",
+        "action": "subscription lapsed - told how to renew"
+      },
+      {
+        "from": "idle",
+        "to": "idle",
+        "action": "anything else - driver help"
+      },
+      {
+        "from": "awaiting_cancel_reason",
+        "to": "awaiting_cancel_reason_text",
+        "action": "taps Other"
+      },
+      {
+        "from": "awaiting_cancel_reason",
+        "to": "awaiting_cancel_reason",
+        "action": "anything else - re-prompt"
+      },
+      {
+        "from": "awaiting_cancel_reason_text",
+        "to": "awaiting_cancel_reason_text",
+        "action": "empty - re-prompt"
+      },
+      {
+        "from": "awaiting_cancel_reason",
+        "to": "idle",
+        "action": "picks a reason - trip reopened and re-offered"
+      },
+      {
+        "from": "awaiting_cancel_reason_text",
+        "to": "idle",
+        "action": "types a reason - trip reopened and re-offered"
+      },
+      {
+        "from": "en_route",
+        "to": "awaiting_ride_otp",
+        "action": "taps I have arrived"
+      },
+      {
+        "from": "en_route",
+        "to": "awaiting_cancel_confirm",
+        "action": "taps Cancel"
+      },
+      {
+        "from": "en_route",
+        "to": "en_route",
+        "action": "anything else - re-prompt"
+      },
+      {
+        "from": "idle",
+        "to": "en_route",
+        "action": "taps I am on the way"
+      }
+    ]
+  }
+}

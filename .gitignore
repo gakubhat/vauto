@@ -1,0 +1,10 @@
+node_modules/
+dist/
+
+# Secrets. .env.example is the only one that should ever be committed.
+.env
+.env.*
+!.env.example
+
+*.log
+.DS_Store

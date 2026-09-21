@@ -1,0 +1,144 @@
+import { beforeAll, beforeEach, afterAll, describe, it, expect } from 'vitest';
+import { supabaseAdmin } from '../../src/supabase/client';
+import {
+  DRIVER_A_PHONE,
+  PICKUP,
+  RIDER_PHONE,
+  driverStep,
+  messageLog,
+  riderStep,
+  setupMockSendMessage,
+  startAsNewDriver,
+  startAsNewRider,
+  stateOf,
+  truncateAll,
+} from '../engine';
+
+const NEW_RIDER = '+919999000011';
+const NEW_DRIVER = '+919999000012';
+
+beforeAll(async () => {
+  setupMockSendMessage();
+  await truncateAll();
+});
+beforeEach(async () => {
+  messageLog.length = 0;
+  await truncateAll();
+});
+afterAll(async () => {
+  await truncateAll();
+});
+
+describe('signup', () => {
+  it('asks only for a name, then offers a Book button', async () => {
+    await startAsNewRider(NEW_RIDER);
+    const { handleRiderMessage } = await import('../../src/state/flows/rider');
+
+    await handleRiderMessage(NEW_RIDER, { text: 'Sita' });
+
+    // No home-location step - straight to idle.
+    expect((await stateOf(NEW_RIDER))?.state).toBe('idle');
+
+    const last = messageLog.filter((m) => m.to === NEW_RIDER).slice(-1)[0];
+    expect(last.msg.kind).toBe('buttons');
+    // A brand-new rider defaults to Kannada before choosing a language.
+    expect((last.msg as { body: string }).body).toContain('ಹಾಯ್');
+    const ids = (last.msg as { buttons: Array<{ id: string }> }).buttons.map((b) => b.id);
+    expect(ids).toContain('book_auto');
+
+    const { data } = await supabaseAdmin.from('riders').select('*').eq('phone', NEW_RIDER).single();
+    expect((data as { name: string } | null)?.name).toBe('Sita');
+  }, 60000);
+
+  it('starts a booking from the Book button', async () => {
+    await startAsNewRider(NEW_RIDER);
+    const { handleRiderMessage } = await import('../../src/state/flows/rider');
+    await handleRiderMessage(NEW_RIDER, { text: 'Sita' });
+
+    await handleRiderMessage(NEW_RIDER, { text: 'book_auto' });
+    expect((await stateOf(NEW_RIDER))?.state).toBe('awaiting_pickup_location');
+  }, 60000);
+
+  it('walks a driver through signup and KYC, ending pending approval', async () => {
+    await startAsNewDriver(NEW_DRIVER);
+
+    await driverStep(NEW_DRIVER, { text: 'Ramesh' });
+    expect((await stateOf(NEW_DRIVER))?.state).toBe('awaiting_vehicle_number');
+
+    await driverStep(NEW_DRIVER, { text: 'KA-05-1234' });
+    expect((await stateOf(NEW_DRIVER))?.state).toBe('awaiting_base_location');
+
+    await driverStep(NEW_DRIVER, { location: PICKUP });
+    expect((await stateOf(NEW_DRIVER))?.state).toBe('awaiting_radius');
+
+    await driverStep(NEW_DRIVER, { text: 'radius_5' });
+    expect((await stateOf(NEW_DRIVER))?.state).toBe('awaiting_kyc_aadhaar_front');
+
+    await driverStep(NEW_DRIVER, { imageUrl: 'https://example.com/front.jpg' });
+    expect((await stateOf(NEW_DRIVER))?.state).toBe('awaiting_kyc_aadhaar_back');
+
+    await driverStep(NEW_DRIVER, { imageUrl: 'https://example.com/back.jpg' });
+    expect((await stateOf(NEW_DRIVER))?.state).toBe('awaiting_kyc_selfie');
+
+    await driverStep(NEW_DRIVER, { imageUrl: 'https://example.com/selfie.jpg' });
+    expect((await stateOf(NEW_DRIVER))?.state).toBe('idle');
+
+    const { data } = await supabaseAdmin.from('drivers').select('*').eq('phone', NEW_DRIVER).single();
+    const d = data as Record<string, unknown> | null;
+    expect(d?.name).toBe('Ramesh');
+    expect(d?.vehicle_no).toBe('KA-05-1234');
+    expect(d?.radius_km).toBe(5);
+    expect(d?.kyc_aadhaar_url).toBe('https://example.com/front.jpg');
+    expect(d?.kyc_aadhaar_back_url).toBe('https://example.com/back.jpg');
+    expect(d?.kyc_selfie_url).toBe('https://example.com/selfie.jpg');
+    expect(d?.approval_status).toBe('pending');
+  }, 60000);
+
+  it('rejects text where a KYC image is expected', async () => {
+    await startAsNewDriver(NEW_DRIVER);
+    await driverStep(NEW_DRIVER, { text: 'Ramesh' });
+    await driverStep(NEW_DRIVER, { text: 'KA-05-1234' });
+    await driverStep(NEW_DRIVER, { location: PICKUP });
+    await driverStep(NEW_DRIVER, { text: 'radius_5' });
+
+    await driverStep(NEW_DRIVER, { text: 'here is my aadhaar' });
+    expect((await stateOf(NEW_DRIVER))?.state).toBe('awaiting_kyc_aadhaar_front');
+  }, 60000);
+
+  it('lets a driver skip every KYC step', async () => {
+    await startAsNewDriver(NEW_DRIVER);
+    await driverStep(NEW_DRIVER, { text: 'Ramesh' });
+    await driverStep(NEW_DRIVER, { text: 'KA-05-1234' });
+    await driverStep(NEW_DRIVER, { location: PICKUP });
+    await driverStep(NEW_DRIVER, { text: 'radius_5' });
+    await driverStep(NEW_DRIVER, { text: 'skip_kyc' });
+    await driverStep(NEW_DRIVER, { text: 'skip_kyc' });
+    await driverStep(NEW_DRIVER, { text: 'skip_kyc' });
+
+    expect((await stateOf(NEW_DRIVER))?.state).toBe('idle');
+    const { data } = await supabaseAdmin.from('drivers').select('*').eq('phone', NEW_DRIVER).single();
+    expect((data as { approval_status: string } | null)?.approval_status).toBe('pending');
+  }, 60000);
+
+  it('tells a pending driver they are not verified yet', async () => {
+    await startAsNewDriver(NEW_DRIVER);
+    await driverStep(NEW_DRIVER, { text: 'Ramesh' });
+    await driverStep(NEW_DRIVER, { text: 'KA-05-1234' });
+    await driverStep(NEW_DRIVER, { location: PICKUP });
+    await driverStep(NEW_DRIVER, { text: 'radius_5' });
+    await driverStep(NEW_DRIVER, { text: 'skip_kyc' });
+    await driverStep(NEW_DRIVER, { text: 'skip_kyc' });
+    await driverStep(NEW_DRIVER, { text: 'skip_kyc' });
+
+    const before = messageLog.length;
+    await driverStep(NEW_DRIVER, { text: '70' });
+    const sent = messageLog.slice(before).filter((m) => m.to === NEW_DRIVER);
+
+    // Told why, in Kannada (drivers default to Kannada), and no quote created.
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.some((m) => m.msg.kind === 'text' && m.msg.body.includes('ಪರಿಶೀಲನೆ'))).toBe(true);
+
+    const { data: quotes } = await supabaseAdmin.from('quotes').select('id');
+    expect(quotes?.length ?? 0).toBe(0);
+  }, 60000);
+});
