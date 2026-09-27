@@ -3,6 +3,32 @@
 The bot cannot receive anything until Meta can reach your machine. This is the
 whole setup, in order.
 
+## Environment variables
+
+Copy `.env.example` to `.env` and fill these in. The server **refuses to start**
+if a `required` variable is missing, so a half-configured deploy fails loudly
+rather than behaving strangely.
+
+| Variable | What it is | If it is wrong |
+|---|---|---|
+| `SUPABASE_URL` | Project URL | Nothing connects |
+| `SUPABASE_SERVICE_ROLE_KEY` | Backend DB access. **Bypasses RLS** — this is the most dangerous secret here | Full read/write to all data |
+| `JWT_SECRET` | Signs the 12h admin session token | Anyone can forge an admin token and read KYC, phones and transcripts |
+| `ADMIN_PHONE` / `ADMIN_PASSWORD` | The single office login. Password is **plaintext** | Anyone can open the dashboard |
+| `WHATSAPP_ACCESS_TOKEN` | Sends as your business. Use a **System User** token, not the 24h one | No messages, or messages stop after a day |
+| `WHATSAPP_PHONE_NUMBER_ID` | Which number to send from | Sends fail with a payload error |
+| `WHATSAPP_APP_SECRET` | Verifies `X-Hub-Signature-256` on every webhook POST | **Every inbound message is rejected with 401** — the bot looks dead |
+| `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | One-time webhook handshake with Meta | Meta cannot verify the callback URL |
+
+Check the WhatsApp pair any time:
+
+```bash
+cd server && npm run check:whatsapp
+```
+
+It reports the token type and expiry. `SYSTEM_USER` with `expires_at: NEVER` is
+what you want; a 60-day token expires silently and takes the bot down with it.
+
 ## 1. Prerequisites
 
 | Requirement | Check |

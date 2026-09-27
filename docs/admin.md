@@ -16,6 +16,25 @@ is easy to miss because in-app navigation still works. `/api/*` that matches no
 route returns a JSON 404, never HTML, so a typo looks like an API error rather
 than a broken page.
 
+**`JWT_SECRET` matters more than it looks.** It is the only thing standing
+between the internet and every rider's phone number, every driver's KYC
+document and Aadhaar number, and the full message history. The token payload is
+just `{ phone }`, so anyone holding the secret can mint a valid admin token and
+read or change all of it. It is used in exactly two places —
+`jwt.sign` at login and `jwt.verify` on every admin request
+(`server/src/routes/admin.ts`) — and for nothing else: not the webhook, not
+Supabase, not any rider or driver flow. Generate it random
+(`node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`);
+a memorable value is a public value. Rotating it invalidates every existing
+admin session.
+
+**`ADMIN_PASSWORD` is stored and compared in plaintext.** The login check is a
+direct `!==` against `.env`, with no hashing and no constant-time compare. That
+is a deliberate MVP simplification for a single office login, not an oversight —
+moving to an `admins` table with hashed passwords is the documented next step
+(see `AGENTS.md` → Known gaps, per-staffer logins). Until then: keep `.env` out
+of the repo and do not reuse that password anywhere.
+
 `server/public` is gitignored: a committed build goes stale silently, and the
 server cannot tell. If the folder is missing, startup logs:
 
@@ -29,7 +48,8 @@ Build and run everything with `npm run build:all` (see `docs/local-setup.md`).
 |---|---|
 | Mount | `/api/admin` |
 | Auth | `POST /api/admin/login` → JWT; `authenticate` middleware on everything else |
-| Credentials | `ADMIN_PHONE` + `ADMIN_PASSWORD_HASH` in `.env` (single office login for MVP) |
+| Credentials | `ADMIN_PHONE` + `ADMIN_PASSWORD` in `.env` (single office login for MVP). The password is **plaintext** and compared directly — see the note below |
+| Session token | `JWT_SECRET` signs a 12h token carrying the admin phone. Used only for `/api/admin/*` |
 | 401 handling | Clears the token and reloads |
 
 ## Pages
