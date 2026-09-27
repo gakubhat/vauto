@@ -17,7 +17,7 @@ Both paths converge on the same `idle` state and the same lead handling.
 |---|---|---|---|
 | 1 | `awaiting_driver_name` | "What's your name?" | `drivers.name` |
 | 2 | `awaiting_vehicle_number` | "Your auto number? (e.g. KA-05-1234)" | `drivers.vehicle_no` |
-| 3 | `awaiting_base_location` | "Send your location — where do you usually wait?" | `drivers.base_lat/lng` |
+| 3 | `awaiting_base_location` | "Where do you usually wait for trips?" — **select** your location | `drivers.base_lat/lng` |
 | 4 | `awaiting_radius` | "How far will you go for a trip?" → 2 / 3 / 5 / 8 km | `drivers.radius_km` |
 | 5 | `awaiting_kyc_aadhaar_front` | "Send a photo of your Aadhaar (front)" — Skip allowed | `drivers.kyc_aadhaar_url` |
 | 6 | `awaiting_kyc_aadhaar_back` | "Now the back" — Skip allowed | `drivers.kyc_aadhaar_back_url` |
@@ -33,7 +33,7 @@ KYC images go to the restricted **`kyc`** storage bucket (never the public `phot
 | `awaiting_role` | New number, no role | `role_driver` → `awaiting_driver_name` |
 | `awaiting_driver_name` | Signup 1 | text → `awaiting_vehicle_number` |
 | `awaiting_vehicle_number` | Signup 2 | text → `awaiting_base_location` |
-| `awaiting_base_location` | Signup 3 | location → `awaiting_radius`; text → stored as `base_text` → `awaiting_radius` |
+| `awaiting_base_location` | Signup 3 | location → `awaiting_radius`; anything else → re-prompt |
 | `awaiting_radius` | Signup 4 | `radius_{n}` → `awaiting_kyc_aadhaar_front` |
 | `awaiting_kyc_aadhaar_front` | Signup 5 | image → `awaiting_kyc_aadhaar_back`; `skip_kyc` → `awaiting_kyc_aadhaar_back` |
 | `awaiting_kyc_aadhaar_back` | Signup 6 | image → `awaiting_kyc_selfie`; `skip_kyc` → `awaiting_kyc_selfie` |
@@ -171,6 +171,7 @@ Two ways to answer, both valid:
 | 11 | `radius_{n}` | → set radius |
 | 12 | "radius" / "ವ್ಯಾಪ್ತಿ" | → `awaiting_radius_change` |
 | 13 | "language" / "ಭಾಷೆ" / "kannada" / "english" | Language |
+| — | "help" / "ಸಹಾಯ" | **Checked before every state branch**, including the approval gate. Queues a help request and replies with the helpline |
 | 14 | Anything else | Help: *"Reply with a number to quote. Send your location to update where you wait."* |
 
 ## Message priority while a trip is active
@@ -229,6 +230,7 @@ and `trips.cancel_reason` holds the typed text.
 1. **Pending driver sends anything** — *"Your details are with us. We'll message you once verified."* No leads are dispatched to `pending` or `suspended` drivers.
 1. **Image arrives outside a KYC state** — ignored. Only `awaiting_kyc_*` states accept uploads; anything else gets no reply rather than a confusing one.
 1. **Non-image in a KYC state** — re-sends the same prompt with the Skip button. Never advances on text.
+1. **Text where the base location is expected** — **rejected**. Matching runs on coordinates, so a typed area name used to leave the driver silently out of every lead while paying a subscription. The bot re-prompts for a real location. A later location update (`awaiting_base_confirm`) is the way to move base during the day.
 2. **Subscription lapsed** — no leads. Any inbound message gets *"Your subscription ended on {date}. Pay ₹{amount} to keep receiving trips — contact {number}."* The driver is not silently dropped.
 3. **Location sent while idle** → `awaiting_base_confirm`: *"Update where you wait to this location?"* Yes/No. Autos move during the day, so this must be easy.
 4. **Driver already has an active trip** — excluded from all matching until the trip closes (`one_active_trip_per_driver`).

@@ -14,6 +14,9 @@ interface TripDetailData {
   drop_lat: number | null;
   drop_lng: number | null;
   drop_text: string | null;
+  dispute_lat: number | null;
+  dispute_lng: number | null;
+  dispute_text: string | null;
   distance_km: number | null;
   pickup_at: string | null;
   quote_window_closes_at: string | null;
@@ -39,10 +42,19 @@ export function TripDetail() {
 
   if (!t) return <p>Loading…</p>;
 
-  const map = (lat: number | null, lng: number | null) =>
-    lat !== null && lng !== null
+  // `typeof` rather than `!== null`: a column that is absent (older row, or a
+  // migration not yet applied) arrives as undefined, not null.
+  const map = (lat: number | null | undefined, lng: number | null | undefined) =>
+    typeof lat === 'number' && typeof lng === 'number'
       ? `https://www.google.com/maps?q=${lat},${lng}`
       : null;
+
+  const coords = (lat: number | null | undefined, lng: number | null | undefined) =>
+    typeof lat === 'number' && typeof lng === 'number'
+      ? `${lat.toFixed(4)}, ${lng.toFixed(4)}`
+      : null;
+
+  const hasDispute = typeof t.dispute_lat === 'number' || Boolean(t.dispute_text);
 
   return (
     <>
@@ -65,7 +77,7 @@ export function TripDetail() {
       <div className="panel">
         <h2>Route</h2>
         <p>
-          From {t.pickup_text ?? `${t.pickup_lat?.toFixed(4)}, ${t.pickup_lng?.toFixed(4)}`}{' '}
+          From {t.pickup_text ?? coords(t.pickup_lat, t.pickup_lng) ?? '—'}{' '}
           {map(t.pickup_lat, t.pickup_lng) && (
             <a href={map(t.pickup_lat, t.pickup_lng) as string} target="_blank" rel="noreferrer">
               map
@@ -73,13 +85,24 @@ export function TripDetail() {
           )}
         </p>
         <p>
-          To {t.drop_text ?? `${t.drop_lat?.toFixed(4)}, ${t.drop_lng?.toFixed(4)}`}{' '}
+          To {t.drop_text ?? coords(t.drop_lat, t.drop_lng) ?? '—'}{' '}
           {map(t.drop_lat, t.drop_lng) && (
             <a href={map(t.drop_lat, t.drop_lng) as string} target="_blank" rel="noreferrer">
               map
             </a>
           )}
         </p>
+        {hasDispute && (
+          <p>
+            <span className="badge bad">disputed</span> Disputed from{' '}
+            {t.dispute_text ?? coords(t.dispute_lat, t.dispute_lng) ?? '—'}{' '}
+            {map(t.dispute_lat, t.dispute_lng) && (
+              <a href={map(t.dispute_lat, t.dispute_lng) as string} target="_blank" rel="noreferrer">
+                map
+              </a>
+            )}
+          </p>
+        )}
         <p className="muted">
           {t.distance_km ?? '?'} km · window closes{' '}
           {t.quote_window_closes_at ? new Date(t.quote_window_closes_at).toLocaleString() : '—'}

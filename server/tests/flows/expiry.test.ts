@@ -13,6 +13,7 @@ import {
   riderStep,
   seedDriver,
   seedRider,
+  setAutoPickCheapest,
   setupMockSendMessage,
   stateOf,
   truncateAll,
@@ -25,6 +26,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   messageLog.length = 0;
   await truncateAll();
+  await setAutoPickCheapest(false);
 });
 afterAll(async () => {
   await truncateAll();
@@ -33,7 +35,9 @@ afterAll(async () => {
 describe('quote window expiry', () => {
   it('expires with no quotes and offers Try again with the same locations', async () => {
     await seedRider();
-    // No drivers at all - nothing will be dispatched.
+    // A driver is notified but never quotes, so the window closes empty.
+    // (No driver at all is a different case - see no-cover.test.ts.)
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
     const tripId = await postTrip();
     expect((await getTrip(tripId))?.status).toBe('open');
 
@@ -58,6 +62,7 @@ describe('quote window expiry', () => {
 
   it('Change details sends the rider back to pickup', async () => {
     await seedRider();
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
     const tripId = await postTrip();
     await closeQuoteWindow((await getTrip(tripId)) as never);
 
@@ -67,7 +72,8 @@ describe('quote window expiry', () => {
     expect((await stateOf(RIDER_PHONE))?.state).toBe('awaiting_pickup_location');
   }, 60000);
 
-  it('auto-accepts the cheapest quote when the window closes', async () => {
+  it('auto-accepts the cheapest quote when the window closes and the setting is on', async () => {
+    await setAutoPickCheapest(true);
     await seedRider();
     await seedDriver(DRIVER_A_PHONE, { name: 'Ramesh', lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
     const tripId = await postTrip();
@@ -78,6 +84,20 @@ describe('quote window expiry', () => {
     const trip = await getTrip(tripId);
     expect(trip?.status).toBe('assigned');
     expect(trip?.quoted_amount_paise).toBe(12000);
+  }, 60000);
+
+  it('does not auto-assign when the window closes; rider must pick', async () => {
+    await seedRider();
+    await seedDriver(DRIVER_A_PHONE, { name: 'Ramesh', lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+    const tripId = await postTrip();
+
+    await driverStep(DRIVER_A_PHONE, { text: '120' });
+    await closeQuoteWindow((await getTrip(tripId)) as never);
+
+    const trip = await getTrip(tripId);
+    expect(trip?.status).toBe('open');
+    expect((await stateOf(RIDER_PHONE))?.state).toBe('collecting_quotes');
+    expect(findButtonId('accept_quote_', RIDER_PHONE)).toBeTruthy();
   }, 60000);
 
   it('withdraws losing quotes and marks them lapsed', async () => {

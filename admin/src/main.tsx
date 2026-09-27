@@ -11,6 +11,8 @@ import { RiderDetail } from './RiderDetail';
 import { Trips } from './Trips';
 import { TripDetail } from './TripDetail';
 import { Sessions } from './Sessions';
+import { Help } from './Help';
+import { Recover } from './Recover';
 import { Settings } from './Settings';
 import { Analytics } from './Analytics';
 import './style.css';
@@ -37,7 +39,9 @@ function App() {
           <Route path="riders/:id" element={<RiderDetail />} />
           <Route path="trips" element={<Trips />} />
           <Route path="trips/:id" element={<TripDetail />} />
+          <Route path="help" element={<Help />} />
           <Route path="sessions" element={<Sessions />} />
+          <Route path="recover/:phone" element={<Recover />} />
           <Route path="analytics" element={<Analytics />} />
           <Route path="settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" />} />

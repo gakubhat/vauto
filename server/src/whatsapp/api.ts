@@ -91,9 +91,9 @@ export function renderWhatsApp(to: string, msg: OutMessage): WhatsAppPayload {
         body: { text: msg.body },
         ...(msg.footer ? { footer: { text: msg.footer } } : {}),
         action: {
-          button: msg.button,
+          button: msg.button.slice(0, 20),
           sections: msg.sections.map((s) => ({
-            title: s.title,
+            title: s.title.slice(0, 24),
             rows: s.rows.map((r) => ({
               id: r.id,
               title: r.title.slice(0, 24),
@@ -154,17 +154,16 @@ export async function sendMessage(to: string, msg: OutMessage): Promise<Response
   return transport(to, msg);
 }
 
-/**
- * Utility template send. Required for reaching a driver who has not messaged
- * within 24 hours - outside the session window only templates are delivered.
- * TODO: register the template in Meta and pass its name here.
- */
-export async function sendTemplate(
-  to: string,
-  templateName: string,
-  languageCode: string,
-  components: Array<Record<string, unknown>> = [],
-): Promise<Response> {
+export interface TemplatePayload {
+  to: string;
+  templateName: string;
+  languageCode: string;
+  components: Array<Record<string, unknown>>;
+}
+
+export type TemplateTransport = (payload: TemplatePayload) => Promise<Response>;
+
+async function defaultTemplateTransport(payload: TemplatePayload): Promise<Response> {
   const res = await fetch(`${GRAPH_API}/${config.whatsappPhoneNumberId}/messages`, {
     method: 'POST',
     headers: {
@@ -173,13 +172,55 @@ export async function sendTemplate(
     },
     body: JSON.stringify({
       messaging_product: 'whatsapp',
-      to,
+      to: payload.to,
       type: 'template',
-      template: { name: templateName, language: { code: languageCode }, components },
+      template: {
+        name: payload.templateName,
+        language: { code: payload.languageCode },
+        components: payload.components,
+      },
     }),
   });
   if (!res.ok) {
-    console.error('[WHATSAPP TEMPLATE FAILED]', to, res.status, await res.text());
+    console.error('[WHATSAPP TEMPLATE FAILED]', payload.to, res.status, await res.text());
   }
   return res as unknown as Response;
+}
+
+let templateTransport: TemplateTransport = defaultTemplateTransport;
+
+/** Same seam as setTransport: tests install a capture here. */
+export function setTemplateTransport(fn: TemplateTransport): void {
+  templateTransport = fn;
+}
+
+export function resetTemplateTransport(): void {
+  templateTransport = defaultTemplateTransport;
+}
+
+/** Meta's wamid - needed to join delivery/read receipts back to a dispatch. */
+export async function wamidOf(res: Response): Promise<string | null> {
+  try {
+    const body = (await res.clone().json()) as Record<string, unknown>;
+    const messages = body.messages as Array<Record<string, unknown>> | undefined;
+    const id = messages?.[0]?.id;
+    return typeof id === 'string' ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Utility template send. Required for reaching a driver who has not messaged
+ * within 24 hours - outside the session window only templates are delivered.
+ * Template names are configured in Admin -> Settings, not hardcoded: Meta
+ * often mangles proposed names during approval.
+ */
+export async function sendTemplate(
+  to: string,
+  templateName: string,
+  languageCode: string,
+  components: Array<Record<string, unknown>> = [],
+): Promise<Response> {
+  return templateTransport({ to, templateName, languageCode, components });
 }

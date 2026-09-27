@@ -1,5 +1,5 @@
 import { supabaseAdmin } from './supabase/client';
-import { closeQuoteWindow, dispatchLeads } from './lib/matching';
+import { closeQuoteWindow, dispatchScheduledLeads } from './lib/matching';
 import { getSettings, clearSettingsCache, type Trip } from './state/queries';
 
 /**
@@ -24,7 +24,7 @@ export function startScheduler(intervalMs = 60_000): NodeJS.Timeout {
         .lte('pickup_at', to.toISOString());
 
       for (const trip of (scheduled ?? []) as Trip[]) {
-        await dispatchLeads(trip);
+        await dispatchScheduledLeads(trip);
       }
 
       // 2. Open trips past their quote window.

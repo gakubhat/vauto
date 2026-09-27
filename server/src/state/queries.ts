@@ -14,6 +14,10 @@ export interface Settings {
   scheduled_lead_hours: number;
   subscription_price_paise: number;
   renewal_contact: string | null;
+  helpline: string | null;
+  office_number: string | null;
+  lead_template: string;
+  kyc_approved_template: string;
 }
 
 let cachedSettings: Settings | null = null;
@@ -61,6 +65,7 @@ export interface Driver {
   trial_ends_at: string | null;
   rating_avg: number;
   rating_count: number;
+  last_reply_at: string | null;
 }
 
 export interface Trip {
@@ -75,6 +80,9 @@ export interface Trip {
   drop_lat: number | null;
   drop_lng: number | null;
   drop_text: string | null;
+  dispute_lat: number | null;
+  dispute_lng: number | null;
+  dispute_text: string | null;
   distance_km: number | null;
   pickup_at: string | null;
   quote_window_closes_at: string | null;

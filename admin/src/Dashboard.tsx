@@ -43,6 +43,10 @@ export function Dashboard() {
           <div className="l">Disputed</div>
         </div>
         <div className="card">
+          <div className="n">{stats.help_open as number}</div>
+          <div className="l">Waiting for help</div>
+        </div>
+        <div className="card">
           <div className="n">{stats.active_drivers as number}</div>
           <div className="l">Approved drivers</div>
         </div>

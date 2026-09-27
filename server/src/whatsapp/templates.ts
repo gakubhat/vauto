@@ -79,14 +79,19 @@ export function riderPostComplete(lang: Lang): OutMessage {
 export function askPickup(lang: Lang): OutMessage {
   return {
     kind: 'location_request',
-    body: `${t('ask_pickup', lang)}\n\n${t('location_hint', lang)}`,
+    body: `${t('ask_pickup', lang)}\n\n${t('location_hint_select', lang)}`,
   };
+}
+
+/** Re-prompt when pickup arrives as text. Matching needs coordinates. */
+export function needLocation(lang: Lang): OutMessage {
+  return { kind: 'location_request', body: t('need_location', lang) };
 }
 
 export function askDrop(lang: Lang): OutMessage {
   return {
     kind: 'location_request',
-    body: `${t('ask_drop', lang)}\n\n${t('location_hint', lang)}`,
+    body: `${t('ask_drop', lang)}\n\n${t('location_hint_type', lang)}`,
   };
 }
 
@@ -94,11 +99,15 @@ export function tripConfirm(
   lang: Lang,
   pickup: string,
   drop: string,
-  distanceKm: number,
+  distanceKm: number | null,
 ): OutMessage {
   return {
     kind: 'buttons',
-    body: t('confirm_card', lang, { pickup, drop, distance: distanceKm }),
+    body: t('confirm_card', lang, {
+      pickup,
+      drop,
+      distance: distanceKm != null ? t('confirm_distance', lang, { distance: distanceKm }) : '',
+    }),
     buttons: [btn('book_now', 'book_now', lang), btn('schedule', 'schedule', lang)],
     footer: t('unknown_place', lang),
   };
@@ -126,45 +135,88 @@ export function scheduleHour(lang: Lang, hours: number[]): OutMessage {
   };
 }
 
-/** Carries a Cancel button - a rider must never have to type "cancel". */
-export function findingAuto(lang: Lang, tripId: string): OutMessage {
+/**
+ * Carries a Cancel button - a rider must never have to type "cancel".
+ * `notified` is the driver count dispatch actually reached, or undefined when
+ * it is not known yet (scheduled trip, leads still held back).
+ */
+export function findingAuto(lang: Lang, tripId: string, notified?: number): OutMessage {
+  const body =
+    notified == null
+      ? t('finding_auto', lang)
+      : t(notified === 1 ? 'finding_auto_told_one' : 'finding_auto_told', lang, {
+          count: notified,
+        });
   return {
     kind: 'buttons',
-    body: t('finding_auto', lang),
+    body,
     buttons: [btn('cancel', `cancel_trip_${tripId}`, lang)],
   };
 }
 
-export function quoteMessage(
-  lang: Lang,
-  quoteId: string,
-  name: string,
-  vehicle: string,
-  amountPaise: Paise,
-  rating: number,
-  distanceKm: number,
-): OutMessage {
-  return {
-    kind: 'buttons',
-    body: t('quote_msg', lang, {
-      name,
-      vehicle,
-      amount: formatRupees(amountPaise),
-      rating: rating.toFixed(1),
-      distance: distanceKm,
-    }),
-    buttons: [btn('accept_quote', `accept_quote_${quoteId}`, lang)],
-  };
+export interface QuoteListItem {
+  id: string;
+  name: string;
+  vehicle: string;
+  amountPaise: Paise;
+  rating: number;
 }
 
-export function quoteStatus(lang: Lang, count: number, cheapest: Paise): OutMessage {
-  return { kind: 'text', body: t('quote_status', lang, { count, amount: formatRupees(cheapest) }) };
+/** One tappable list of pending quotes. WhatsApp caps a list at 10 rows, so we
+ *  show 9 quotes plus Cancel. Each new quote re-sends the whole list. */
+export function quoteList(
+  lang: Lang,
+  tripId: string,
+  quotes: QuoteListItem[],
+  windowClosed: boolean,
+): OutMessage {
+  const shown = quotes.slice(0, 9);
+  return {
+    kind: 'list',
+    body: t(
+      windowClosed ? 'quote_list_closed' : quotes.length === 1 ? 'quote_list_body_one' : 'quote_list_body',
+      lang,
+      { count: quotes.length },
+    ),
+    button: t('pick_auto', lang),
+    sections: [
+      {
+        title: t('quote_list_title', lang),
+        rows: [
+          ...shown.map((q) => ({
+            id: `accept_quote_${q.id}`,
+            title: `${q.name} · ${formatRupees(q.amountPaise)}`,
+            // A labelled rating, not a bare number - otherwise
+            // "KA-05-1234 · 4.5" could read as anything.
+            description: `${q.vehicle} · ${
+              q.rating > 0
+                ? t('quote_rating', lang, { rating: q.rating.toFixed(1) })
+                : t('new_driver', lang)
+            }`,
+          })),
+          { id: `cancel_trip_${tripId}`, title: t('cancel', lang) },
+        ],
+      },
+    ],
+  };
 }
 
 export function noQuotes(lang: Lang, tripId: string): OutMessage {
   return {
     kind: 'buttons',
     body: t('no_quotes', lang),
+    buttons: [
+      btn('try_again', `retry_${tripId}`, lang),
+      btn('change_details', `change_trip_${tripId}`, lang),
+    ],
+  };
+}
+
+/** Nobody was even notified - distinct from "notified but nobody quoted". */
+export function noCover(lang: Lang, tripId: string): OutMessage {
+  return {
+    kind: 'buttons',
+    body: t('no_cover', lang),
     buttons: [
       btn('try_again', `retry_${tripId}`, lang),
       btn('change_details', `change_trip_${tripId}`, lang),
@@ -203,6 +255,26 @@ export function completionConfirm(lang: Lang, name: string): OutMessage {
   };
 }
 
+/**
+ * Optional ask for the drop location when a typed destination left us without
+ * coordinates. Skippable, and a location screen cannot share a message with
+ * reply buttons, so tapping Share sends the picker as a second message.
+ */
+export function dropProof(lang: Lang, kind: 'completed' | 'disputed'): OutMessage {
+  return {
+    kind: 'buttons',
+    body: t(kind === 'disputed' ? 'drop_proof_disputed' : 'drop_proof_completed', lang),
+    buttons: [
+      btn('share_location', 'drop_proof_share', lang),
+      btn('skip', 'drop_proof_skip', lang),
+    ],
+  };
+}
+
+export function dropProofShare(lang: Lang): OutMessage {
+  return { kind: 'location_request', body: t('drop_proof_share_hint', lang) };
+}
+
 export function fareCheck(lang: Lang, name: string, amountPaise: Paise): OutMessage {
   return {
     kind: 'buttons',
@@ -215,8 +287,16 @@ export function fareCheck(lang: Lang, name: string, amountPaise: Paise): OutMess
   };
 }
 
-export function disputed(lang: Lang): OutMessage {
-  return { kind: 'text', body: t('disputed', lang) };
+export function disputed(lang: Lang, phone: string): OutMessage {
+  return { kind: 'text', body: t('disputed', lang, { phone }) };
+}
+
+/** Answer to "help". Always replies - a helpline that stays silent is worse
+ *  than none, so with no number configured it falls back to the chat itself. */
+export function helpReply(lang: Lang, phone: string | null): OutMessage {
+  return phone
+    ? { kind: 'text', body: t('help_reply', lang, { phone }) }
+    : { kind: 'text', body: t('help_no_number', lang) };
 }
 
 export function rateList(lang: Lang, name: string): OutMessage {
@@ -258,10 +338,10 @@ export function cancelReasonList(lang: Lang, kind: 'rider' | 'driver'): OutMessa
   return {
     kind: 'list',
     body: t('cancel_reason_prompt', lang),
-    button: t('cancel_reason_prompt', lang),
+    button: t('cancel_reason_title', lang),
     sections: [
       {
-        title: t('cancel_reason_prompt', lang),
+        title: t('cancel_reason_title', lang),
         rows: [
           ...rows.map(([key, id]) => ({ id, title: t(key, lang) })),
           { id: 'creason_other', title: t('reason_other', lang) },
@@ -309,8 +389,13 @@ export function askVehicle(lang: Lang): OutMessage {
 export function askBaseLocation(lang: Lang): OutMessage {
   return {
     kind: 'location_request',
-    body: `${t('ask_base_location', lang)}\n\n${t('location_hint', lang)}`,
+    body: `${t('ask_base_location', lang)}\n\n${t('location_hint_select', lang)}`,
   };
+}
+
+/** Re-prompt when a base location arrives as text. Matching needs coordinates. */
+export function needBaseLocation(lang: Lang): OutMessage {
+  return { kind: 'location_request', body: t('need_base_location', lang) };
 }
 
 export function askRadius(lang: Lang, options: number[]): OutMessage {
@@ -346,8 +431,8 @@ export function kycVerified(lang: Lang): OutMessage {
   return { kind: 'text', body: t('kyc_verified', lang) };
 }
 
-export function kycRejected(lang: Lang): OutMessage {
-  return { kind: 'text', body: t('kyc_rejected', lang) };
+export function kycRejected(lang: Lang, phone: string): OutMessage {
+  return { kind: 'text', body: t('kyc_rejected', lang, { phone }) };
 }
 
 /**
@@ -366,6 +451,11 @@ export function needImage(lang: Lang): OutMessage {
   return { kind: 'text', body: t('kyc_need_image', lang) };
 }
 
+/** The upload failed on our side - say so rather than re-prompting. */
+export function kycUploadFailed(lang: Lang): OutMessage {
+  return { kind: 'text', body: t('kyc_upload_failed', lang) };
+}
+
 export function leadMessage(
   lang: Lang,
   tripId: string,
@@ -377,7 +467,7 @@ export function leadMessage(
 ): OutMessage {
   return {
     kind: 'buttons',
-    body: `${t('lead', lang, { from, near: nearText, to, distance: distanceText, when })}\n${t('quote_hint', lang)}`,
+    body: `${t('lead', lang, { from, near: nearText, to, distance: distanceText ? t('lead_distance', lang, { distance: distanceText }) : '', when })}\n${t('quote_hint', lang)}`,
     buttons: [btn('quote_btn', `quote_${tripId}`, lang)],
   };
 }
@@ -485,8 +575,8 @@ export function otpWrong(lang: Lang): OutMessage {
   return { kind: 'text', body: t('otp_wrong', lang) };
 }
 
-export function otpBlocked(lang: Lang): OutMessage {
-  return { kind: 'text', body: t('otp_blocked', lang) };
+export function otpBlocked(lang: Lang, phone: string): OutMessage {
+  return { kind: 'text', body: t('otp_blocked', lang, { phone }) };
 }
 
 export function askDone(lang: Lang): OutMessage {

@@ -1,4 +1,5 @@
-import { setTransport } from '../src/whatsapp/api';
+import { setTransport, setTemplateTransport } from '../src/whatsapp/api';
+import type { TemplatePayload } from '../src/whatsapp/api';
 import { setGeocoder } from '../src/lib/geocode';
 import type { OutMessage } from '../src/whatsapp/spec';
 import { handleRiderMessage } from '../src/state/flows/rider';
@@ -6,6 +7,7 @@ import { handleDriverMessage } from '../src/state/flows/driver';
 import { supabaseAdmin } from '../src/supabase/client';
 import { config } from '../src/config';
 import { upsertSession, type Role } from '../src/state/store';
+import { clearSettingsCache } from '../src/state/queries';
 
 // ── Types ──
 
@@ -44,12 +46,31 @@ export function makeMockSendMessage(): (to: string, msg: OutMessage) => Promise<
   };
 }
 
-/** Install the capture transport. Works under vitest and under plain tsx. */
+export const templateLog: TemplatePayload[] = [];
+
+/** The replacement template sender. Nothing reaches Meta. */
+export function makeMockSendTemplate(): (payload: TemplatePayload) => Promise<Response> {
+  return async (payload: TemplatePayload): Promise<Response> => {
+    templateLog.push(payload);
+    return {
+      ok: true,
+      status: 200,
+      clone: () => ({ json: async () => ({ messages: [{ id: `wamid.test.${templateLog.length}` }] }) }),
+    } as unknown as Response;
+  };
+}
+
+export function resetTemplateCapture(): void {
+  templateLog.length = 0;
+}
+
 export const TEST_ADDRESS = 'Gandhi Circle, Hosapete';
 
 export function installMock(): void {
   resetCapture();
+  resetTemplateCapture();
   setTransport(makeMockSendMessage());
+  setTemplateTransport(makeMockSendTemplate());
   // Deterministic, offline: no test should depend on a geocoding provider.
   setGeocoder(async () => TEST_ADDRESS);
 }
@@ -178,6 +199,28 @@ function assertDestructiveAllowed(): void {
  * trips, so sessions must go first or the trips delete is rejected by the FK
  * and silently does nothing.
  */
+async function setSetting(patch: Record<string, unknown>): Promise<void> {
+  const { error } = await supabaseAdmin.from('settings').update(patch).eq('id', true);
+  if (error) throw new Error(`setSetting failed: ${error.message}`);
+  clearSettingsCache();
+}
+
+export async function setAutoPickCheapest(value: boolean): Promise<void> {
+  await setSetting({ auto_pick_cheapest: value });
+}
+
+export async function setFareCheck(value: boolean): Promise<void> {
+  await setSetting({ fare_check_enabled: value });
+}
+
+export async function setHelpline(value: string | null): Promise<void> {
+  await setSetting({ helpline: value });
+}
+
+export async function setOfficeNumber(value: string | null): Promise<void> {
+  await setSetting({ office_number: value });
+}
+
 export async function truncateAll(): Promise<void> {
   assertDestructiveAllowed();
   const ZERO = '00000000-0000-0000-0000-000000000000';
@@ -185,7 +228,8 @@ export async function truncateAll(): Promise<void> {
     const { error } = await supabaseAdmin.from(table).delete().neq(column, value);
     if (error) throw new Error(`truncateAll failed on ${table}: ${error.message}`);
   };
-  await wipe('bot_messages', 'id', ZERO);
+    await wipe('help_requests', 'id', ZERO);
+    await wipe('bot_messages', 'id', ZERO);
   await wipe('events', 'id', ZERO);
   await wipe('ratings', 'id', ZERO);
   await wipe('trip_otps', 'trip_id', ZERO);
@@ -194,6 +238,11 @@ export async function truncateAll(): Promise<void> {
   await wipe('subscriptions', 'id', ZERO);
   await wipe('conversation_sessions', 'phone', '__dummy__');
   await wipe('trips', 'id', ZERO);
+  // Rollups reference drivers with a plain FK, so they must go before the
+  // parent or the drivers delete is rejected and silently leaves rows behind.
+  await wipe('driver_daily', 'driver_id', ZERO);
+  await wipe('route_daily', 'cell', '__dummy__');
+  await wipe('daily_summary', 'day', '1900-01-01');
   await wipe('drivers', 'phone', '__dummy__');
   await wipe('riders', 'phone', '__dummy__');
 }
@@ -228,6 +277,8 @@ export async function seedDriver(
     approved?: boolean;
     subscriptionUntil?: string | null;
     language?: string;
+    /** WhatsApp only delivers free-form within 24h of this. */
+    lastReplyAt?: string | null;
   } = {},
 ): Promise<string> {
   const { data: existing } = await supabaseAdmin
@@ -252,6 +303,8 @@ export async function seedDriver(
         radius_km: opts.radiusKm ?? 5,
         approval_status: opts.approved === false ? 'pending' : 'approved',
         preferred_language: opts.language ?? 'kannada',
+        last_reply_at:
+          opts.lastReplyAt === null ? null : opts.lastReplyAt ?? new Date().toISOString(),
         subscription_until:
           opts.subscriptionUntil === null
             ? null

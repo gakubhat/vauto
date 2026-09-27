@@ -22,9 +22,26 @@ const T: Record<string, Entry> = {
   no: { en: 'No', kn: 'ಇಲ್ಲ' },
   cancel: { en: 'Cancel', kn: 'ರದ್ದು' },
   send_location: { en: 'Send location', kn: 'ಸ್ಥಳ ಕಳುಹಿಸಿ' },
-  location_hint: {
-    en: 'Tap the button below to share it. If that does not work, just type the area name.',
-    kn: 'ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ ಸ್ಥಳ ಹಂಚಿಕೊಳ್ಳಿ. ಆಗದಿದ್ದರೆ ಊರಿನ ಹೆಸರು ಬರೆಯಿರಿ.',
+  // Pickup and a driver's base must be a real location: matching runs on
+  // coordinates. No "or type it" here - that is what left riders and drivers
+  // invisible to each other.
+  location_hint_select: {
+    en: 'Tap the button below and select your location.',
+    kn: 'ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ ನಿಮ್ಮ ಸ್ಥಳ ಆಯ್ಕೆ ಮಾಡಿ.',
+  },
+  need_location: {
+    en: 'Please tap the button below and select your location.',
+    kn: 'ದಯವಿಟ್ಟು ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ ನಿಮ್ಮ ಸ್ಥಳ ಆಯ್ಕೆ ಮಾಡಿ.',
+  },
+  need_base_location: {
+    en: 'Please tap the button below and select where you wait.',
+    kn: 'ದಯವಿಟ್ಟು ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ ನೀವು ಕಾಯುವ ಸ್ಥಳ ಆಯ್ಕೆ ಮಾಡಿ.',
+  },
+  // Drop may be typed: drivers read the description and quote from local
+  // knowledge, and an approximate destination is better than none.
+  location_hint_type: {
+    en: 'Tap the button below, or just type the area name.',
+    kn: 'ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ, ಅಥವಾ ಊರಿನ ಹೆಸರು ಬರೆಯಿರಿ.',
   },
   language_menu: { en: 'Choose your language', kn: 'ನಿಮ್ಮ ಭಾಷೆ ಆಯ್ಕೆ ಮಾಡಿ' },
   language_set: { en: 'Language set.', kn: 'ಭಾಷೆ ಆಯ್ಕೆಯಾಗಿದೆ.' },
@@ -40,17 +57,18 @@ const T: Record<string, Entry> = {
 
   // Rider booking
   ask_pickup: {
-    en: 'Where should the auto come? Send your location.',
-    kn: 'ಆಟೋ ಎಲ್ಲಿಗೆ ಬರಬೇಕು? ನಿಮ್ಮ ಸ್ಥಳ ಕಳುಹಿಸಿ.',
+    en: 'Where should the auto come?',
+    kn: 'ಆಟೋ ಎಲ್ಲಿಗೆ ಬರಬೇಕು?',
   },
   ask_drop: {
-    en: 'Where are you going? Send the destination location.',
-    kn: 'ನೀವು ಎಲ್ಲಿಗೆ ಹೋಗುತ್ತೀರಿ? ಗಮ್ಯಸ್ಥಾನದ ಸ್ಥಳ ಕಳುಹಿಸಿ.',
+    en: 'Where are you going?',
+    kn: 'ನೀವು ಎಲ್ಲಿಗೆ ಹೋಗುತ್ತೀರಿ?',
   },
   confirm_card: {
-    en: '*From*\n{pickup}\n\n*To*\n{drop}\n\n_About {distance}_',
-    kn: '*ಇಂದ*\n{pickup}\n\n*ಗೆ*\n{drop}\n\n_ಸುಮಾರು {distance}_',
+    en: '*From*\n{pickup}\n\n*To*\n{drop}{distance}',
+    kn: '*ಇಂದ*\n{pickup}\n\n*ಗೆ*\n{drop}{distance}',
   },
+  confirm_distance: { en: '\n\n_About {distance}_', kn: '\n\n_ಸುಮಾರು {distance}_' },
   book_now: { en: 'Book now', kn: 'ಈಗ ಬುಕ್ ಮಾಡಿ' },
   schedule: { en: 'Schedule', kn: 'ಮುಂಚಿತವಾಗಿ' },
   change_pickup: { en: 'Change pickup', kn: 'ಪಿಕಪ್ ಬದಲಿಸಿ' },
@@ -66,15 +84,37 @@ const T: Record<string, Entry> = {
     en: 'Finding an auto. We will message you as drivers quote.',
     kn: 'ಆಟೋ ಹುಡುಕಲಾಗುತ್ತಿದೆ. ಚಾಲಕರು ಬೆಲೆ ಹೇಳಿದಂತೆ ನಿಮಗೆ ಸಂದೇಶ ಬರುತ್ತದೆ.',
   },
-  quote_msg: {
-    en: '{name} ({vehicle}) - {amount}\nRating {rating}, {distance} km away',
-    kn: '{name} ({vehicle}) - {amount}\nರೇಟಿಂಗ್ {rating}, {distance} ಕಿ.ಮೀ ದೂರ',
+  finding_auto_told: {
+    en: 'We told {count} autos nearby. As they quote, you will see their prices here.',
+    kn: 'ಹತ್ತಿರದ {count} ಆಟೋಗಳಿಗೆ ಹೇಳಿದ್ದೇವೆ. ಬೆಲೆ ಹೇಳಿದಂತೆ ನಿಮಗೆ ಇಲ್ಲಿ ತಿಳಿಯುತ್ತದೆ.',
   },
-  accept_quote: { en: 'Accept', kn: 'ಒಪ್ಪಿಕೊಳ್ಳಿ' },
-  quote_status: {
-    en: '{count} quotes so far, cheapest {amount}. Still looking.',
-    kn: 'ಈಗ {count} ಬೆಲೆಗಳು, ಕಡಿಮೆ {amount}. ಇನ್ನೂ ಹುಡುಕಲಾಗುತ್ತಿದೆ.',
+  finding_auto_told_one: {
+    en: 'We told 1 auto nearby. As it quotes, you will see the price here.',
+    kn: 'ಹತ್ತಿರದ 1 ಆಟೋಗೆ ಹೇಳಿದ್ದೇವೆ. ಬೆಲೆ ಹೇಳಿದಂತೆ ನಿಮಗೆ ಇಲ್ಲಿ ತಿಳಿಯುತ್ತದೆ.',
   },
+  no_cover: {
+    en: 'No autos cover this area right now. Try again in a little while, or change where you are going.',
+    kn: 'ಈ ಪ್ರದೇಶದಲ್ಲಿ ಈಗ ಯಾವ ಆಟೋವೂ ಇಲ್ಲ. ಸ್ವಲ್ಪ ಬಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ, ಅಥವಾ ವಿವರ ಬದಲಿಸಿ.',
+  },
+  quote_list_body: {
+    en: '{count} autos quoted. Open the list and pick one.',
+    kn: '{count} ಆಟೋ ಬೆಲೆ ಹೇಳಿವೆ. ಪಟ್ಟಿ ತೆರೆದು ಒಂದನ್ನು ಆರಿಸಿ.',
+  },
+  quote_list_body_one: {
+    en: '1 auto quoted. Open the list and pick one.',
+    kn: '1 ಆಟೋ ಬೆಲೆ ಹೇಳಿದೆ. ಪಟ್ಟಿ ತೆರೆದು ಒಂದನ್ನು ಆರಿಸಿ.',
+  },
+  quote_list_closed: {
+    en: 'Time to pick. Open the list and choose an auto.',
+    kn: 'ಈಗ ಆರಿಸಿ. ಪಟ್ಟಿ ತೆರೆದು ಆಟೋ ಆಯ್ಕೆ ಮಾಡಿ.',
+  },
+  pick_auto: { en: 'Pick an auto', kn: 'ಆಟೋ ಆರಿಸಿ' },
+  quote_list_title: { en: 'Quotes', kn: 'ಬೆಲೆಗಳು' },
+  // How a rating reads in the pick list; `{rating}` is the number. Swap this
+  // for "Rating {rating}" if the star does not render on a target device.
+  quote_rating: { en: '★{rating}', kn: '★{rating}' },
+  // Shown where a rating would be, for a driver with none yet.
+  new_driver: { en: 'New driver', kn: 'ಹೊಸ ಚಾಲಕ' },
   no_quotes: {
     en: 'No autos responded this time.',
     kn: 'ಈ ಬಾರಿ ಯಾವ ಆಟೋವೂ ಉತ್ತರಿಸಲಿಲ್ಲ.',
@@ -97,9 +137,24 @@ const T: Record<string, Entry> = {
   fare_more: { en: 'Paid more', kn: 'ಹೆಚ್ಚು ಕೊಟ್ಟೆ' },
   fare_less: { en: 'Paid less', kn: 'ಕಡಿಮೆ ಕೊಟ್ಟೆ' },
   disputed: {
-    en: 'Marked as disputed. Our office will call you.',
-    kn: 'ವಿವಾದ ಎಂದು ಗುರುತಿಸಲಾಗಿದೆ. ನಮ್ಮ ಕಚೇರಿಯಿಂದ ಕರೆ ಬರುತ್ತದೆ.',
+    en: 'Marked as disputed. Our office will call you. To reach us now, call: {phone}',
+    kn: 'ವಿವಾದ ಎಂದು ಗುರುತಿಸಲಾಗಿದೆ. ನಮ್ಮ ಕಚೇರಿಯಿಂದ ಕರೆ ಬರುತ್ತದೆ. ಈಗಲೇ ಸಂಪರ್ಕಿಸಲು ಕರೆ ಮಾಡಿ: {phone}',
   },
+  // Optional, after the ride: fills in the drop coordinates a typed
+  // destination left out. Never blocks the trip.
+  drop_proof_completed: {
+    en: 'If you can, share where you were dropped. It helps us improve.',
+    kn: 'ಸಾಧ್ಯವಾದರೆ ನೀವು ಇಳಿದ ಸ್ಥಳ ಹಂಚಿಕೊಳ್ಳಿ. ಇದು ಸುಧಾರಿಸಲು ಸಹಾಯ ಮಾಡುತ್ತದೆ.',
+  },
+  drop_proof_disputed: {
+    en: 'Share your location so our office can look into this.',
+    kn: 'ನಮ್ಮ ಕಚೇರಿ ಪರಿಶೀಲಿಸಲು ನಿಮ್ಮ ಸ್ಥಳ ಹಂಚಿಕೊಳ್ಳಿ.',
+  },
+  drop_proof_share_hint: {
+    en: 'Tap the button below to share your location.',
+    kn: 'ನಿಮ್ಮ ಸ್ಥಳ ಹಂಚಲು ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ.',
+  },
+  share_location: { en: 'Share location', kn: 'ಸ್ಥಳ ಹಂಚಿ' },
   rate_prompt: { en: 'Rate {name} - how was the ride?', kn: '{name} ಗೆ ರೇಟಿಂಗ್ - ಪ್ರಯಾಣ ಹೇಗಿತ್ತು?' },
   thanks_rating: { en: 'Thanks for the rating!', kn: 'ರೇಟಿಂಗ್‌ಗೆ ಧನ್ಯವಾದ!' },
   cancelled: { en: 'Trip cancelled.', kn: 'ಪ್ರಯಾಣ ರದ್ದಾಗಿದೆ.' },
@@ -114,16 +169,26 @@ const T: Record<string, Entry> = {
   },
   no_active_trip: { en: 'You have no active trip.', kn: 'ನಿಮಗೆ ಚಾಲ್ತಿಯಲ್ಲಿರುವ ಪ್ರಯಾಣ ಇಲ್ಲ.' },
   rider_help: {
-    en: 'Send "auto" to book, "status" to see your trip, or "language" to switch.',
-    kn: '"ಆಟೋ" ಬುಕ್ ಮಾಡಲು, "ಸ್ಥಿತಿ" ಪ್ರಯಾಣ ನೋಡಲು, "ಭಾಷೆ" ಬದಲಿಸಲು ಕಳುಹಿಸಿ.',
+    en: 'Send "auto" to book, "status" to see your trip, "language" to switch, or "help" to call us.',
+    kn: '"ಆಟೋ" ಬುಕ್ ಮಾಡಲು, "ಸ್ಥಿತಿ" ಪ್ರಯಾಣ ನೋಡಲು, "ಭಾಷೆ" ಬದಲಿಸಲು, "ಸಹಾಯ" ನಮಗೆ ಕರೆ ಮಾಡಲು ಕಳುಹಿಸಿ.',
+  },
+  /** Appended wherever a user is stuck, so "contact the office" means something. */
+  call_office: { en: 'Call us: {phone}', kn: 'ನಮಗೆ ಕರೆ ಮಾಡಿ: {phone}' },
+  help_reply: {
+    en: 'Need help? Call us: {phone}. We are happy to help.',
+    kn: 'ಸಹಾಯ ಬೇಕೇ? ನಮಗೆ ಕರೆ ಮಾಡಿ: {phone}. ನಾವು ಸಹಾಯ ಮಾಡುತ್ತೇವೆ.',
+  },
+  help_no_number: {
+    en: 'Reply here with your problem and our office will help you.',
+    kn: 'ನಿಮ್ಮ ಸಮಸ್ಯೆಯನ್ನು ಇಲ್ಲಿ ಕಳುಹಿಸಿ, ನಮ್ಮ ಕಚೇರಿ ಸಹಾಯ ಮಾಡುತ್ತದೆ.',
   },
 
   // Driver signup
   ask_driver_name: { en: "What's your name?", kn: 'ನಿಮ್ಮ ಹೆಸರು ಏನು?' },
   ask_vehicle: { en: 'Your auto number? (e.g. KA-05-1234)', kn: 'ನಿಮ್ಮ ಆಟೋ ನಂಬರ್? (ಉದಾ. KA-05-1234)' },
   ask_base_location: {
-    en: 'Send your location - where do you usually wait for trips?',
-    kn: 'ನಿಮ್ಮ ಸ್ಥಳ ಕಳುಹಿಸಿ - ನೀವು ಸಾಮಾನ್ಯವಾಗಿ ಎಲ್ಲಿ ಕಾಯುತ್ತೀರಿ?',
+    en: 'Where do you usually wait for trips?',
+    kn: 'ನೀವು ಸಾಮಾನ್ಯವಾಗಿ ಎಲ್ಲಿ ಕಾಯುತ್ತೀರಿ?',
   },
   ask_radius: { en: 'How far will you go for a trip?', kn: 'ಪ್ರಯಾಣಕ್ಕೆ ಎಷ್ಟು ದೂರ ಹೋಗುತ್ತೀರಿ?' },
   radius_km: { en: '{n} km', kn: '{n} ಕಿ.ಮೀ' },
@@ -140,13 +205,17 @@ const T: Record<string, Entry> = {
     kn: 'ನಿಮ್ಮ ವಿವರಗಳು ನಮ್ಮಲ್ಲಿವೆ. ಪರಿಶೀಲನೆಯಾದ ಮೇಲೆ ಪ್ರಯಾಣಗಳು ಬರುತ್ತವೆ.',
   },
   kyc_need_image: { en: 'Please send a photo, or tap Skip.', kn: 'ದಯವಿಟ್ಟು ಫೋಟೋ ಕಳುಹಿಸಿ, ಅಥವಾ ಬಿಡಿ ಒತ್ತಿರಿ.' },
+  kyc_upload_failed: {
+    en: 'Sorry, that photo did not come through. Please send it again, or tap Skip.',
+    kn: 'ಕ್ಷಮಿಸಿ, ಆ ಫೋಟೋ ಬಂದಿಲ್ಲ. ದಯವಿಟ್ಟು ಇನ್ನೊಮ್ಮೆ ಕಳುಹಿಸಿ, ಅಥವಾ ಬಿಡಿ ಒತ್ತಿರಿ.',
+  },
   kyc_verified: {
     en: 'Your documents are verified. Trips will now start coming to you.',
     kn: 'ನಿಮ್ಮ ದಾಖಲೆಗಳು ಪರಿಶೀಲನೆಯಾಗಿವೆ. ಈಗ ನಿಮಗೆ ಪ್ರಯಾಣಗಳು ಬರುತ್ತವೆ.',
   },
   kyc_rejected: {
-    en: 'Your documents were not approved. Please contact the office.',
-    kn: 'ನಿಮ್ಮ ದಾಖಲೆಗಳು ಅನುಮೋದನೆ ಆಗಿಲ್ಲ. ದಯವಿಟ್ಟು ಕಚೇರಿಗೆ ಸಂಪರ್ಕಿಸಿ.',
+    en: 'Your documents were not approved. Please contact the office. Call us: {phone}',
+    kn: 'ನಿಮ್ಮ ದಾಖಲೆಗಳು ಅನುಮೋದನೆ ಆಗಿಲ್ಲ. ದಯವಿಟ್ಟು ಕಚೇರಿಗೆ ಸಂಪರ್ಕಿಸಿ. ನಮಗೆ ಕರೆ ಮಾಡಿ: {phone}',
   },
   post_complete: {
     en: 'Thanks for using VJobs! Just say Hi when you need another auto. Or say Language / ಭಾಷೆ to switch.',
@@ -155,9 +224,10 @@ const T: Record<string, Entry> = {
 
   // Driver trips
   lead: {
-    en: '*New trip*\n\n*From* {from}\n_{near} away_\n\n*To* {to}\n_{distance}_\n\n*When* {when}',
-    kn: '*ಹೊಸ ಪ್ರಯಾಣ*\n\n*ಇಂದ* {from}\n_{near} ದೂರ_\n\n*ಗೆ* {to}\n_{distance}_\n\n*ಸಮಯ* {when}',
+    en: '*New trip*\n\n*From* {from}\n_{near} away_\n\n*To* {to}{distance}\n\n*When* {when}',
+    kn: '*ಹೊಸ ಪ್ರಯಾಣ*\n\n*ಇಂದ* {from}\n_{near} ದೂರ_\n\n*ಗೆ* {to}{distance}\n\n*ಸಮಯ* {when}',
   },
+  lead_distance: { en: '\n_{distance}_', kn: '\n_{distance}_' },
   lead_when_now: { en: 'Now', kn: 'ಈಗ' },
   navigate: { en: 'Navigate', kn: 'ದಾರಿ ತೋರಿಸಿ' },
   navigate_pickup: {
@@ -210,7 +280,10 @@ const T: Record<string, Entry> = {
   ask_otp: { en: 'Ask the rider for the 4-digit code and send it.', kn: 'ಪ್ರಯಾಣಿಕರಿಂದ 4 ಅಂಕಿಯ ಕೋಡ್ ಕೇಳಿ ಕಳುಹಿಸಿ.' },
   otp_ok: { en: 'Trip started.', kn: 'ಪ್ರಯಾಣ ಆರಂಭ.' },
   otp_wrong: { en: 'Wrong code. Try again.', kn: 'ತಪ್ಪು ಕೋಡ್. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.' },
-  otp_blocked: { en: 'Too many attempts. Please call the office.', kn: 'ತುಂಬಾ ಪ್ರಯತ್ನಗಳು. ದಯವಿಟ್ಟು ಕಚೇರಿಗೆ ಕರೆ ಮಾಡಿ.' },
+  otp_blocked: {
+    en: 'Too many wrong codes. Please call the office. Call us: {phone}',
+    kn: 'ತುಂಬಾ ತಪ್ಪು ಕೋಡ್‌ಗಳು. ದಯವಿಟ್ಟು ಕಚೇರಿಗೆ ಕರೆ ಮಾಡಿ. ನಮಗೆ ಕರೆ ಮಾಡಿ: {phone}',
+  },
   ask_done: { en: 'Send DONE when you drop the rider.', kn: 'ಪ್ರಯಾಣಿಕರನ್ನು ಬಿಟ್ಟ ಮೇಲೆ DONE ಕಳುಹಿಸಿ.' },
   done_recorded: { en: 'Noted. Waiting for the rider to confirm.', kn: 'ಗುರುತಿಸಲಾಗಿದೆ. ಪ್ರಯಾಣಿಕರ ದೃಢೀಕರಣಕ್ಕೆ ಕಾಯಲಾಗುತ್ತಿದೆ.' },
   rate_rider: { en: 'Rate {rider} - how was the trip?', kn: '{rider} ಗೆ ರೇಟಿಂಗ್ - ಪ್ರಯಾಣ ಹೇಗಿತ್ತು?' },
@@ -218,6 +291,9 @@ const T: Record<string, Entry> = {
     en: 'Sorry about that. Why are you cancelling?',
     kn: 'ಕ್ಷಮಿಸಿ. ಏಕೆ ರದ್ದು ಮಾಡುತ್ತಿದ್ದೀರಿ?',
   },
+  // WhatsApp caps a list section title at 24 chars and its open button at 20.
+  cancel_reason_title: { en: 'Why?', kn: 'ಏಕೆ?' },
+  trip_done: { en: 'Rider dropped', kn: 'ಪ್ರಯಾಣಿಕ ಬಿಟ್ಟೆ' },
   cancel_reason_typed_prompt: {
     en: 'Please type the reason in a few words.',
     kn: 'ದಯವಿಟ್ಟು ಕಾರಣವನ್ನು ಕೆಲವು ಪದಗಳಲ್ಲಿ ಬರೆಯಿರಿ.',
@@ -260,8 +336,8 @@ const T: Record<string, Entry> = {
   update_base: { en: 'Update where you wait to this location?', kn: 'ನೀವು ಕಾಯುವ ಸ್ಥಳವನ್ನು ಇದಕ್ಕೆ ಬದಲಿಸುವುದೇ?' },
   base_updated: { en: 'Location updated.', kn: 'ಸ್ಥಳ ಬದಲಾಗಿದೆ.' },
   driver_help: {
-    en: 'Reply with a number to quote. Send your location to update where you wait.',
-    kn: 'ಬೆಲೆ ಹೇಳಲು ಸಂಖ್ಯೆ ಕಳುಹಿಸಿ. ಕಾಯುವ ಸ್ಥಳ ಬದಲಿಸಲು ಸ್ಥಳ ಕಳುಹಿಸಿ.',
+    en: 'Reply with a number to quote. Send your location to update where you wait. Send "help" to call us.',
+    kn: 'ಬೆಲೆ ಹೇಳಲು ಸಂಖ್ಯೆ ಕಳುಹಿಸಿ. ಕಾಯುವ ಸ್ಥಳ ಬದಲಿಸಲು ಸ್ಥಳ ಕಳುಹಿಸಿ. ನಮಗೆ ಕರೆ ಮಾಡಲು "ಸಹಾಯ" ಕಳುಹಿಸಿ.',
   },
 };
 

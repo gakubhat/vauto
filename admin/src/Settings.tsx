@@ -13,6 +13,10 @@ interface SettingsData {
   scheduled_lead_hours: number;
   subscription_price_paise: number;
   renewal_contact: string | null;
+  helpline: string | null;
+  office_number: string | null;
+  lead_template: string;
+  kyc_approved_template: string;
 }
 
 export function Settings() {
@@ -66,7 +70,7 @@ export function Settings() {
         {num('Auto-dispute after (hours)', 'dispute_hours')}
         {num('Scheduled lead hours before pickup', 'scheduled_lead_hours')}
         {num('Subscription price (paise)', 'subscription_price_paise')}
-        {bool('Auto-pick cheapest at window close', 'auto_pick_cheapest')}
+        {bool('Auto-pick cheapest at window close (off = rider chooses)', 'auto_pick_cheapest')}
         {bool('Fare check after drop', 'fare_check_enabled')}
         <div className="row">
           <label style={{ width: 220 }}>Renewal contact</label>
@@ -74,6 +78,53 @@ export function Settings() {
             value={s.renewal_contact ?? ''}
             onChange={(e) => setS({ ...s, renewal_contact: e.target.value })}
           />
+        </div>
+        <div className="row">
+          <label style={{ width: 220 }}>Helpline number</label>
+          <input
+            value={s.helpline ?? ''}
+            placeholder="+91 91487 38021"
+            onChange={(e) => setS({ ...s, helpline: e.target.value })}
+          />
+          <span className="muted">
+            Given out on "help" and everywhere the bot says contact the office. Must be a number a
+            person answers — the WhatsApp number cannot take calls.
+          </span>
+        </div>
+        <div className="row">
+          <label style={{ width: 220 }}>Office alerts to</label>
+          <input
+            value={s.office_number ?? ''}
+            placeholder="+91 91487 38021"
+            onChange={(e) => setS({ ...s, office_number: e.target.value })}
+          />
+          <span className="muted">
+            WhatsApp number that receives an alert for every help request and dispute. Needs to be
+            WhatsApp-enabled, and must not be the bot&apos;s own number. Replies from it are logged
+            but not answered by the bot.
+          </span>
+        </div>
+        <div className="row">
+          <label style={{ width: 220 }}>Lead template</label>
+          <input
+            value={s.lead_template}
+            onChange={(e) => setS({ ...s, lead_template: e.target.value })}
+          />
+          <span className="muted">
+            Sent to drivers idle &gt;24h. Must be an approved Utility template that tells them to
+            reply with a price — a template has no Quote button.
+          </span>
+        </div>
+        <div className="row">
+          <label style={{ width: 220 }}>KYC approved template</label>
+          <input
+            value={s.kyc_approved_template}
+            onChange={(e) => setS({ ...s, kyc_approved_template: e.target.value })}
+          />
+          <span className="muted">
+            Sent when approving a driver who has not messaged in 24h. Leave it matching the name
+            registered in Meta.
+          </span>
         </div>
         <button className="primary" type="submit">
           Save

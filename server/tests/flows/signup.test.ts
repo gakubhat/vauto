@@ -59,6 +59,20 @@ describe('signup', () => {
     expect((await stateOf(NEW_RIDER))?.state).toBe('awaiting_pickup_location');
   }, 60000);
 
+  it('rejects text where a pickup location is expected', async () => {
+    await startAsNewRider(NEW_RIDER);
+    const { handleRiderMessage } = await import('../../src/state/flows/rider');
+    await handleRiderMessage(NEW_RIDER, { text: 'Sita' });
+    await handleRiderMessage(NEW_RIDER, { text: 'book_auto' });
+
+    await handleRiderMessage(NEW_RIDER, { text: 'bus stand' });
+
+    // Matching runs on coordinates, so a typed pickup must never advance.
+    expect((await stateOf(NEW_RIDER))?.state).toBe('awaiting_pickup_location');
+    const last = messageLog.filter((m) => m.to === NEW_RIDER).slice(-1)[0];
+    expect(last.msg.kind).toBe('location_request');
+  }, 60000);
+
   it('walks a driver through signup and KYC, ending pending approval', async () => {
     await startAsNewDriver(NEW_DRIVER);
 
@@ -103,6 +117,19 @@ describe('signup', () => {
 
     await driverStep(NEW_DRIVER, { text: 'here is my aadhaar' });
     expect((await stateOf(NEW_DRIVER))?.state).toBe('awaiting_kyc_aadhaar_front');
+  }, 60000);
+
+  it('rejects text where a driver base location is expected', async () => {
+    await startAsNewDriver(NEW_DRIVER);
+    await driverStep(NEW_DRIVER, { text: 'Ramesh' });
+    await driverStep(NEW_DRIVER, { text: 'KA-05-1234' });
+
+    await driverStep(NEW_DRIVER, { text: 'bus stand' });
+
+    // A bare area name would leave the driver silently out of every lead.
+    expect((await stateOf(NEW_DRIVER))?.state).toBe('awaiting_base_location');
+    const last = messageLog.filter((m) => m.to === NEW_DRIVER).slice(-1)[0];
+    expect(last.msg.kind).toBe('location_request');
   }, 60000);
 
   it('lets a driver skip every KYC step', async () => {

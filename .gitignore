@@ -1,6 +1,10 @@
 node_modules/
 dist/
 
+# Built admin bundle, copied here by `npm run build:all`. Never committed: a
+# stale build is worse than none, since the server cannot tell it is old.
+server/public/
+
 # Secrets. .env.example is the only one that should ever be committed.
 .env
 .env.*

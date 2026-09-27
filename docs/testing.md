@@ -39,7 +39,7 @@ sendMessage() is mocked and every payload is captured in messageLog[].
 | `lastMessage()` | Most recent message |
 | `renderLog()` | Human-readable transcript (text, buttons, lists, locations) |
 | `stateOf(phone)` | Current `{ state, role, data }` — **assert on this directly** |
-| `truncateAll()` | Wipe all trip tables between tests |
+| `truncateAll()` | Wipe all application tables between tests, children before parents |
 | `seedDriver(phone, opts)` | Insert a driver at known coordinates. `opts`: `name`, `vehicle`, `lat`, `lng`, `radiusKm`, `approved`, `subscriptionUntil`, `language` |
 | `seedRider(phone?, name?)` | Insert a rider |
 | `startAsNewRider(phone)` / `startAsNewDriver(phone)` | Drop a phone at the first signup step |
@@ -123,7 +123,15 @@ Flags:
 | `rider.signup.test.ts` | Role selection, name, home location, skip |
 | `rider.booking.test.ts` | Location → destination → confirm → quotes → accept |
 | `rider.scheduling.test.ts` | Today/Tomorrow + hour, `pickup_at`, lead timing |
-| `rider.quotes.test.ts` | Quote pushed on arrival, accept, cheapest auto-pick at close |
+| `quotes-list.test.ts` | Quotes arrive as one list, list refreshes, rider picks a row, window close does not auto-assign |
+| `no-cover.test.ts` | No autos cover the pickup: told immediately (not after a dead wait), Try again / Change details offered, "We told N autos" when there is coverage |
+| `drop-proof.test.ts` | Typed destination: the optional post-ride location ask on Yes **and** No, skip continues, and no ask when the drop is already known |
+| `whatsapp.test.ts` | Every button key exists; no label exceeds the WhatsApp caps; address labels name the area and town; every "contact the office" message carries the helpline |
+| `webhook-signature.test.ts` | `X-Hub-Signature-256` accepted when valid, rejected when missing, tampered, wrong-secret or truncated (pure — no DB) |
+| `helpline.test.ts` | "help" answers with the configured number (Kannada too), still answers when unset, reachable by rider and driver, given on a dispute, and **queues one help request per phone** |
+| `help-anywhere.test.ts` | "help" works mid-trip, once assigned, in Kannada, for a pending driver and mid-ride — and leaves the trip untouched |
+| `recover.test.ts` | Office recovery: reset clears a stale `pending_trip_id`, the person can book again afterwards, a live trip is untouched and still blocks a second booking |
+| `office-alerts.test.ts` | A help request messages the office: once per request not per tap, disputes marked urgent, nothing sent when unconfigured, never alerting the office about itself |
 | `rider.expiry.test.ts` | 30-min expiry, Try again reusing pickup/drop, Change details |
 | `rider.cancel.test.ts` | Cancel pre-OTP, blocked after OTP |
 | `driver.signup.test.ts` | Name → vehicle → location → radius → KYC → pending |
@@ -138,7 +146,11 @@ Flags:
 ### Rules
 
 1. **Sequential, not parallel** — suites share one database. `fileParallelism: false`.
-2. **`truncateAll()` in `beforeEach` and `afterAll`.**
+2. **`truncateAll()` in `beforeEach` and `afterAll`.** It must wipe **every**
+   table with an FK to a wiped table before its parent. `driver_daily`
+   references `drivers`, so omitting it makes the `drivers` delete fail and
+   every suite errors with `driver_daily_driver_id_fkey`. Add new tables here
+   when you add them to the schema.
 3. **Assert on state, DB, and messages** — messages alone can pass while the state is wrong.
 4. **When fixing a bug, add the test that would have caught it.** Assert the specific thing that was broken (e.g. after accepting a quote, `stateOf()` must be `trip_assigned`, and no menu must be sent).
 5. **30s timeout** for full-lifecycle tests — they hit the real database.
@@ -147,20 +159,16 @@ Flags:
 ### Example
 
 ```ts
-it('auto-accepts the cheapest quote when the window closes', async () => {
+it('does not auto-assign when the window closes; rider must pick', async () => {
+  await setAutoPickCheapest(false);
   await seedDriver(DRIVER_A, { lat: 12.97, lng: 77.59, radiusKm: 5 });
-  await seedDriver(DRIVER_B, { lat: 12.98, lng: 77.60, radiusKm: 5 });
-  const { tripId } = await postTrip(PICKUP, DROP);
+  const tripId = await postTrip();
 
-  await driverStep(DRIVER_A, { text: '90' });
-  await driverStep(DRIVER_B, { text: '70' });
+  await driverStep(DRIVER_A, { text: '70' });
+  await closeQuoteWindow((await getTrip(tripId)) as never);
 
-  await closeQuoteWindow(tripId);           // test helper, jumps the clock
-
-  const trip = await getTrip(tripId);
-  expect(trip.driver_id).toBe(driverBId);  // cheapest won
-  expect(trip.quoted_amount_paise).toBe(7000);
-  expect(await stateOf(RIDER_PHONE)).toMatchObject({ state: 'trip_assigned' });
+  expect((await getTrip(tripId))?.status).toBe('open');
+  expect(await stateOf(RIDER_PHONE)).toMatchObject({ state: 'collecting_quotes' });
 });
 ```
 

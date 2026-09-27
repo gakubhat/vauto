@@ -16,6 +16,7 @@
       "trip_assigned": "Driver on the way",
       "ride_in_progress": "Riding",
       "awaiting_completion_confirm": "Did the driver drop you",
+      "awaiting_drop_proof": "After the ride - optionally share where you got off",
       "awaiting_fare_confirm": "Quoted versus paid, only if enabled",
       "awaiting_rating": "Rate the driver",
       "awaiting_cancel_confirm": "Confirm cancellation",
@@ -72,7 +73,7 @@
       {
         "from": "idle",
         "to": "trip_assigned",
-        "action": "taps Accept on a quote"
+        "action": "taps a quote in the list"
       },
       {
         "from": "idle",
@@ -103,6 +104,11 @@
         "from": "awaiting_trip_confirm",
         "to": "collecting_quotes",
         "action": "taps Book now"
+      },
+      {
+        "from": "awaiting_trip_confirm",
+        "to": "awaiting_retry_choice",
+        "action": "taps Book now - no autos cover the pickup"
       },
       {
         "from": "awaiting_trip_confirm",
@@ -142,12 +148,12 @@
       {
         "from": "collecting_quotes",
         "to": "trip_assigned",
-        "action": "taps Accept on a quote"
+        "action": "taps a quote in the list"
       },
       {
         "from": "collecting_quotes",
-        "to": "trip_assigned",
-        "action": "window closes - cheapest auto-accepted"
+        "to": "collecting_quotes",
+        "action": "window closes with quotes - rider must pick"
       },
       {
         "from": "collecting_quotes",
@@ -162,7 +168,7 @@
       {
         "from": "collecting_quotes",
         "to": "collecting_quotes",
-        "action": "anything else - shows quote count"
+        "action": "anything else - re-sends the quote list"
       },
       {
         "from": "awaiting_retry_choice",
@@ -206,6 +212,16 @@
       },
       {
         "from": "awaiting_completion_confirm",
+        "to": "awaiting_drop_proof",
+        "action": "taps Yes - no drop location was recorded"
+      },
+      {
+        "from": "awaiting_completion_confirm",
+        "to": "awaiting_drop_proof",
+        "action": "taps No - no drop location was recorded"
+      },
+      {
+        "from": "awaiting_completion_confirm",
         "to": "awaiting_fare_confirm",
         "action": "taps Yes and fare check is enabled"
       },
@@ -218,6 +234,26 @@
         "from": "awaiting_completion_confirm",
         "to": "idle",
         "action": "taps No - trip disputed"
+      },
+      {
+        "from": "awaiting_drop_proof",
+        "to": "awaiting_drop_proof",
+        "action": "taps Share location - opens the picker"
+      },
+      {
+        "from": "awaiting_drop_proof",
+        "to": "awaiting_fare_confirm",
+        "action": "shares the location or skips - fare check on"
+      },
+      {
+        "from": "awaiting_drop_proof",
+        "to": "awaiting_rating",
+        "action": "shares the location or skips"
+      },
+      {
+        "from": "awaiting_drop_proof",
+        "to": "idle",
+        "action": "shares the location or skips - trip was disputed"
       },
       {
         "from": "awaiting_fare_confirm",

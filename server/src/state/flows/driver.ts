@@ -2,9 +2,15 @@ import { v4 as uuid } from 'uuid';
 import { supabaseAdmin } from '../../supabase/client';
 import { recordEvent } from '../../lib/events';
 import { send } from '../../lib/send';
-import { parseAmount, formatRupees } from '../../lib/money';
+import { parseAmount } from '../../lib/money';
 import { resolveAddress } from '../../lib/geocode';
-import { dispatchLeads } from '../../lib/matching';
+import {
+  dispatchLeads,
+  noCoverExpire,
+  quoteWindowClosed,
+  sendRiderQuoteList,
+} from '../../lib/matching';
+import { handleHelpRequest, isHelpRequest } from '../../lib/help-command';
 import { langOf, t, type Lang } from '../../whatsapp/i18n';
 import type { OutMessage } from '../../whatsapp/spec';
 import * as tpl from '../../whatsapp/templates';
@@ -70,6 +76,21 @@ export async function handleDriverMessage(phone: string, input: DriverInput): Pr
 
   await supabaseAdmin.from('drivers').update({ last_reply_at: new Date().toISOString() }).eq('id', driver.id);
 
+  // ── Help, from anywhere ─────────────────────────────────────────────
+  // Above the signup, gate and active-trip branches. A driver stuck in an OTP
+  // loop, or blocked pending approval, is exactly who needs the office - those
+  // branches would otherwise swallow this.
+  if (isHelpRequest(text)) {
+    const reply = await handleHelpRequest(
+      phone,
+      'driver',
+      lang,
+      (data.pending_trip_id as string | undefined) ?? null,
+      driver.name,
+    );
+    return sendD(phone, reply, state, (data.pending_trip_id as string | undefined) ?? null);
+  }
+
   // ── Signup ──────────────────────────────────────────────────────────
   if (state === 'awaiting_driver_name') {
     if (!text) return sendD(phone, tpl.askDriverName(lang), state);
@@ -86,21 +107,20 @@ export async function handleDriverMessage(phone: string, input: DriverInput): Pr
   }
 
   if (state === 'awaiting_base_location') {
-    if (input.location) {
-      const address = await resolveAddress(input.location.lat, input.location.lng, input.location);
-      await supabaseAdmin
-        .from('drivers')
-        .update({
-          base_lat: input.location.lat,
-          base_lng: input.location.lng,
-          base_text: address,
-        })
-        .eq('id', driver.id);
-    } else if (text) {
-      await supabaseAdmin.from('drivers').update({ base_text: text }).eq('id', driver.id);
-    } else {
-      return sendD(phone, tpl.askBaseLocation(lang), state);
+    // A base must be a real location: matching runs on coordinates, so a typed
+    // area name would leave the driver silently out of every lead.
+    if (!input.location) {
+      return sendD(phone, tpl.needBaseLocation(lang), state);
     }
+    const address = await resolveAddress(input.location.lat, input.location.lng, input.location);
+    await supabaseAdmin
+      .from('drivers')
+      .update({
+        base_lat: input.location.lat,
+        base_lng: input.location.lng,
+        base_text: address,
+      })
+      .eq('id', driver.id);
     const settings = await getSettings();
     await upsertSession(phone, { state: 'awaiting_radius' });
     return sendD(phone, tpl.askRadius(lang, settings.radius_options), 'awaiting_radius');
@@ -178,7 +198,7 @@ export async function handleDriverMessage(phone: string, input: DriverInput): Pr
     if (amount === null) return sendD(phone, tpl.quoteInvalid(lang), state);
     const tripId = data.pending_trip_id as string;
     const trip = await getTrip(tripId);
-    if (!trip || trip.status !== 'open') {
+    if (!trip || trip.status !== 'open' || quoteWindowClosed(trip)) {
       await resetSession(phone, { state: 'idle', role: 'driver' });
       return sendD(phone, tripUnavailable(trip, lang), 'idle');
     }
@@ -199,7 +219,7 @@ export async function handleDriverMessage(phone: string, input: DriverInput): Pr
     if ((otp as { code: string } | null)?.code !== m[1]) {
       if (attempts >= 10) {
         await resetSession(phone, { state: 'idle', role: 'driver' });
-        return sendD(phone, tpl.otpBlocked(lang), 'idle');
+        return sendD(phone, tpl.otpBlocked(lang, (await getSettings()).helpline ?? '-'), 'idle');
       }
       await upsertSession(phone, { data: { otp_attempts: attempts } });
       return sendD(phone, tpl.otpWrong(lang), state, trip.id);
@@ -404,7 +424,7 @@ export async function handleDriverMessage(phone: string, input: DriverInput): Pr
   if (text.startsWith('quote_')) {
     const tripId = text.slice('quote_'.length);
     const trip = await getTrip(tripId);
-    if (!trip || trip.status !== 'open') {
+    if (!trip || trip.status !== 'open' || quoteWindowClosed(trip)) {
       return sendD(phone, tripUnavailable(trip, lang), 'idle');
     }
     await upsertSession(phone, { state: 'awaiting_quote_amount', data: { pending_trip_id: tripId } });
@@ -414,7 +434,7 @@ export async function handleDriverMessage(phone: string, input: DriverInput): Pr
   if (text.startsWith('pick_trip_')) {
     const tripId = text.slice('pick_trip_'.length);
     const trip = await getTrip(tripId);
-    if (!trip || trip.status !== 'open') {
+    if (!trip || trip.status !== 'open' || quoteWindowClosed(trip)) {
       return sendD(phone, tripUnavailable(trip, lang), 'idle');
     }
     await upsertSession(phone, { state: 'awaiting_quote_amount', data: { pending_trip_id: tripId } });
@@ -493,9 +513,9 @@ async function openDispatchedTrips(driverId: string): Promise<Trip[]> {
     .select('*')
     .in('id', ids)
     .eq('status', 'open');
-  return ((trips ?? []) as Trip[]).sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-  );
+  return ((trips ?? []) as Trip[])
+    .filter((tr) => !quoteWindowClosed(tr))
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
 
@@ -507,6 +527,7 @@ async function openDispatchedTrips(driverId: string): Promise<Trip[]> {
 function tripUnavailable(trip: Trip | null, lang: Lang): OutMessage {
   if (!trip) return tpl.tripTaken(lang);
   if (trip.status === 'expired' || trip.status === 'cancelled') return tpl.tripExpired(lang);
+  if (trip.status === 'open' && quoteWindowClosed(trip)) return tpl.tripExpired(lang);
   return tpl.tripTaken(lang);
 }
 
@@ -554,26 +575,33 @@ async function finalizeDriverCancel(
   });
 
   const trip = await getTrip(tripId);
-  const rider = trip ? await getRiderById(trip.rider_id) : null;
-  if (rider && trip) {
-    await send(rider.phone, 'rider', tpl.driverDroppedOut(langOf(rider.preferred_language), null), {
-      tripId,
-    });
-    await upsertSession(rider.phone, {
-      state: 'collecting_quotes',
-      role: 'rider',
-      current_trip_id: tripId,
-      data: { pending_trip_id: tripId },
-    });
+  if (trip) {
+    const reopened: Trip = { ...trip, status: 'open', leads_dispatched: false };
+    const notified = await dispatchLeads(reopened);
+    if (notified === 0) {
+      // Nobody else covers the pickup - do not promise another auto.
+      await noCoverExpire(reopened);
+    } else {
+      const rider = await getRiderById(trip.rider_id);
+      if (rider) {
+        await send(
+          rider.phone,
+          'rider',
+          tpl.driverDroppedOut(langOf(rider.preferred_language), null),
+          { tripId },
+        );
+        await upsertSession(rider.phone, {
+          state: 'collecting_quotes',
+          role: 'rider',
+          current_trip_id: tripId,
+          data: { pending_trip_id: tripId },
+        });
+      }
+    }
   }
 
   await resetSession(phone, { state: 'idle', role: 'driver' });
   await sendD(phone, tpl.driverCancelled(lang), 'idle');
-
-  // Put it back in front of drivers so the rider is not left waiting for nothing.
-  if (trip) {
-    await dispatchLeads({ ...trip, status: 'open', leads_dispatched: false });
-  }
 }
 
 
@@ -608,12 +636,10 @@ async function submitQuote(
     return sendD(phone, tpl.alreadyQuoted(lang, (existing as { amount_paise: number }).amount_paise), 'idle');
   }
 
-  const { data: driverRow } = await supabaseAdmin
-    .from('drivers')
-    .select('name, vehicle_no, rating_avg')
-    .eq('id', driverId)
-    .single();
-  const d = driverRow as { name: string | null; vehicle_no: string | null; rating_avg: number } | null;
+  if (quoteWindowClosed(trip) || trip.status !== 'open') {
+    await resetSession(phone, { state: 'idle', role: 'driver' });
+    return sendD(phone, tripUnavailable(trip, lang), 'idle');
+  }
 
   await supabaseAdmin.from('quotes').insert({
     id: uuid(),
@@ -634,31 +660,7 @@ async function submitQuote(
     properties: { amount_paise: amountPaise },
   });
 
-  const { getRiderById: getRider } = await import('../queries');
-  const rider = await getRider(trip.rider_id);
-  if (rider) {
-    const rLang = langOf(rider.preferred_language);
-    const { data: q } = await supabaseAdmin
-      .from('quotes')
-      .select('id')
-      .eq('trip_id', trip.id)
-      .eq('driver_id', driverId)
-      .single();
-    await send(
-      rider.phone,
-      'rider',
-      tpl.quoteMessage(
-        rLang,
-        (q as { id: string }).id,
-        d?.name ?? 'Driver',
-        d?.vehicle_no ?? '-',
-        amountPaise,
-        d?.rating_avg ?? 0,
-        trip.distance_km ?? 0,
-      ),
-      { sessionState: 'collecting_quotes', tripId: trip.id },
-    );
-  }
+  await sendRiderQuoteList(trip);
 
   await resetSession(phone, { state: 'idle', role: 'driver' });
   await sendD(phone, tpl.quoteSent(lang, amountPaise), 'idle');

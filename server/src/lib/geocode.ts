@@ -43,16 +43,39 @@ export function shortenAddress(raw: string, maxParts = 3): string {
   return parts.slice(0, maxParts).join(', ');
 }
 
-/** Nominatim gives structured parts - pick the two a local would say. */
-function fromNominatimAddress(a: Record<string, string> | undefined, fallback: string): string {
+/**
+ * Nominatim gives structured parts. A local says the road, the area and the
+ * town - "6th Cross, 6th Block, Bengaluru". Taking only the first locality
+ * field is what produced bare "6th Block" labels nobody could act on.
+ */
+export function nominatimLabel(
+  a: Record<string, string> | undefined,
+  fallback: string,
+): string {
   if (!a) return shortenAddress(fallback);
-  const locality =
-    a.neighbourhood ?? a.suburb ?? a.village ?? a.hamlet ?? a.town ?? a.city_district ?? a.city;
-  const road = a.road ?? a.pedestrian ?? a.footway ?? a.residential;
-  const label = [road, locality].filter(Boolean).join(', ');
-  if (label) return label;
-  const city = a.city_district ?? a.city ?? a.town ?? a.county;
-  return city ? String(city) : shortenAddress(fallback);
+  const first = (...keys: Array<string | undefined>): string | undefined =>
+    keys.find((k) => typeof k === 'string' && k.trim().length > 0);
+  const road = first(a.road, a.pedestrian, a.footway, a.residential);
+  const area = first(a.neighbourhood, a.suburb, a.hamlet, a.village, a.city_district);
+  const town = first(a.city, a.town, a.municipality, a.county);
+
+  const seen = new Set<string>();
+  const parts = [road, area, town]
+    .filter((p): p is string => Boolean(p))
+    // A village is often also the city - saying it twice reads badly.
+    .filter((p) => {
+      const k = p.trim().toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+
+  const label = parts.join(', ');
+  const trimmed = fallback ? shortenAddress(fallback) : '';
+  // One bare field is not actionable - the display name usually carries the
+  // surrounding area and town as well.
+  if (parts.length < 2 && trimmed) return trimmed;
+  return label || trimmed;
 }
 
 async function nominatim(lat: number, lng: number): Promise<string | null> {
@@ -75,7 +98,7 @@ async function nominatim(lat: number, lng: number): Promise<string | null> {
   // A named place ("Bus Stand") beats any constructed address.
   if (body.name) return body.name;
   if (body.display_name || body.address) {
-    return fromNominatimAddress(body.address, body.display_name ?? '');
+    return nominatimLabel(body.address, body.display_name ?? '');
   }
   return null;
 }

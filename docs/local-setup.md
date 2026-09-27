@@ -36,7 +36,24 @@ Meta for Developers → your app → **WhatsApp → Configuration → Webhook �
    - **`messages`** — required. Inbound rider and driver messages
    - **`statuses`** — optional but recommended. Delivery and read receipts, which
      is how presence is inferred without asking drivers anything
-3. Send a WhatsApp message to `WHATSAPP_BUSINESS_PHONE` from your phone
+3. **Copy the App secret** (Meta for Developers → your app → Settings → Basic →
+   App secret) into `WHATSAPP_APP_SECRET` in `.env`, then restart the server.
+
+**Every webhook POST is verified against `X-Hub-Signature-256`.** Without the
+secret set, the server refuses to start (`Missing required env var`). With it
+set but *wrong*, every inbound message is rejected with `401` and the bot goes
+silent — so if riders or drivers report "the bot stopped replying" right after
+this step, check the server log for:
+
+```
+[WEBHOOK] rejected: invalid or missing X-Hub-Signature-256
+```
+
+That is the signature check working, not a bug. The secret is compared in
+constant time against an HMAC of the **raw** request body, so it cannot be
+forged by re-serialising the JSON.
+
+4. Send a WhatsApp message to `WHATSAPP_BUSINESS_PHONE` from your phone
 
 You should receive the role-selection buttons (Rider / Driver) in Kannada.
 
@@ -76,8 +93,22 @@ token from a System User in Meta Business Suite.
 number under *To* in the API Setup page, or you will receive inbound messages
 but never get replies.
 
-**The server does not serve the admin UI.** Run `cd admin && npm run dev` for
-the dashboard on `:5173`; it proxies `/api` to `:3000`.
+**The server serves the admin UI.** Build and start both together:
+
+```bash
+cd server && npm run build:all        # build admin → copy to server/public → start
+```
+
+Then the dashboard is on the **same origin** as the API (`http://localhost:3000`),
+which means no CORS and one thing to tunnel. Open `http://localhost:3000`.
+
+For active frontend work, `cd admin && npm run dev` on `:5173` is faster — it
+proxies `/api` to `:3000` and hot-reloads. The two are alternatives, not both:
+running Vite alongside a server that is also serving `server/public` means two
+copies of the dashboard, which is confusing when only one shows your change.
+
+`npm run build:all -- --no-start` builds and copies without starting, if you
+want to run the server yourself.
 
 ## Debugging
 

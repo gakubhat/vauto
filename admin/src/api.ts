@@ -63,6 +63,15 @@ export const setTripStatus = (id: string, status: string, reason?: string) =>
   });
 
 export const getSessions = () => request(admin('/sessions'));
+export const resetSession = (phone: string, to: 'idle' | 'clear' = 'idle') =>
+  request(admin(`/sessions/${encodeURIComponent(phone)}/reset`), {
+    method: 'POST',
+    body: JSON.stringify({ to }),
+  });
+export const getRecover = (phone: string) => request(admin(`/recover/${encodeURIComponent(phone)}`));
+export const getHelpRequests = (openOnly = true) => request(admin(`/help${openOnly ? '?open=1' : ''}`));
+export const closeHelpRequest = (id: string) =>
+  request(admin(`/help/${id}/close`), { method: 'POST' });
 export const getSettings = () => request(admin('/settings'));
 export const putSettings = (body: unknown) =>
   request(admin('/settings'), { method: 'PUT', body: JSON.stringify(body) });

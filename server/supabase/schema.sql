@@ -23,11 +23,18 @@ CREATE TYPE cancelled_by_type AS ENUM ('rider', 'driver', 'office', 'system');
 
 -- Tables
 
+-- Drop order is children first: FKs point at trips/drivers/riders, so those go
+-- last. Every table created below MUST be listed here, or a re-run collides.
 DROP TABLE IF EXISTS bot_messages CASCADE;
 DROP TABLE IF EXISTS events CASCADE;
+DROP TABLE IF EXISTS ratings CASCADE;
 DROP TABLE IF EXISTS lead_dispatches CASCADE;
 DROP TABLE IF EXISTS quotes CASCADE;
 DROP TABLE IF EXISTS trip_otps CASCADE;
+DROP TABLE IF EXISTS help_requests CASCADE;
+DROP TABLE IF EXISTS driver_daily CASCADE;
+DROP TABLE IF EXISTS route_daily CASCADE;
+DROP TABLE IF EXISTS daily_summary CASCADE;
 DROP TABLE IF EXISTS trips CASCADE;
 DROP TABLE IF EXISTS subscriptions CASCADE;
 DROP TABLE IF EXISTS conversation_sessions CASCADE;
@@ -91,6 +98,9 @@ CREATE TABLE trips (
   drop_lat DOUBLE PRECISION,
   drop_lng DOUBLE PRECISION,
   drop_text TEXT,
+  dispute_lat DOUBLE PRECISION,   -- where the rider was when they disputed
+  dispute_lng DOUBLE PRECISION,
+  dispute_text TEXT,
   distance_km DOUBLE PRECISION,
   pickup_at TIMESTAMPTZ,
   quote_window_closes_at TIMESTAMPTZ,
@@ -156,6 +166,9 @@ CREATE TABLE lead_dispatches (
   trip_id UUID NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
   driver_id UUID NOT NULL REFERENCES drivers(id),
   distance_km DOUBLE PRECISION,
+  channel TEXT NOT NULL DEFAULT 'interactive',   -- interactive | template
+  template_name TEXT,
+  wamid TEXT,                                    -- join key for statuses receipts
   sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   delivered_at TIMESTAMPTZ,
   read_at TIMESTAMPTZ,
@@ -163,6 +176,7 @@ CREATE TABLE lead_dispatches (
 );
 
 CREATE INDEX idx_dispatches_trip ON lead_dispatches(trip_id);
+CREATE INDEX idx_dispatches_wamid ON lead_dispatches(wamid);
 
 CREATE TABLE trip_otps (
   trip_id UUID PRIMARY KEY REFERENCES trips(id) ON DELETE CASCADE,
@@ -225,13 +239,30 @@ CREATE TABLE bot_messages (
 CREATE INDEX idx_bot_messages_phone ON bot_messages(phone);
 CREATE INDEX idx_bot_messages_trip ON bot_messages(trip_id);
 
+-- A person who asked for a human. Kept separate from bot_messages because it
+-- carries state the office acts on (open -> closed), not just a transcript.
+CREATE TABLE help_requests (
+  id UUID PRIMARY KEY,
+  phone VARCHAR(20) NOT NULL,
+  role VARCHAR(10) CHECK (role IN ('rider', 'driver')),
+  source VARCHAR(20) NOT NULL,           -- help | dispute
+  reason TEXT,
+  trip_id UUID REFERENCES trips(id) ON DELETE SET NULL,
+  opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  closed_at TIMESTAMPTZ,
+  closed_by VARCHAR(100)
+);
+
+CREATE INDEX idx_help_open ON help_requests(opened_at) WHERE closed_at IS NULL;
+CREATE INDEX idx_help_phone ON help_requests(phone);
+
 CREATE TABLE settings (
   id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
   quote_window_minutes INTEGER NOT NULL DEFAULT 30,
   max_drivers_per_lead INTEGER NOT NULL DEFAULT 25,
   default_radius_km INTEGER NOT NULL DEFAULT 3,
   radius_options INTEGER[] NOT NULL DEFAULT '{2,3,5,8}',
-  auto_pick_cheapest BOOLEAN NOT NULL DEFAULT TRUE,
+  auto_pick_cheapest BOOLEAN NOT NULL DEFAULT FALSE,
   fare_check_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   trial_days INTEGER NOT NULL DEFAULT 30,
   trial_min_rides INTEGER NOT NULL DEFAULT 10,
@@ -239,6 +270,15 @@ CREATE TABLE settings (
   scheduled_lead_hours INTEGER NOT NULL DEFAULT 2,
   subscription_price_paise INTEGER NOT NULL DEFAULT 19900,
   renewal_contact VARCHAR(30),
+  helpline VARCHAR(30),
+  -- Phone the office reads and answers. Receives a WhatsApp alert for every
+  -- new help request and dispute. Independent of helpline: that is what a user
+  -- dials, this is who gets notified. They may be the same number.
+  office_number VARCHAR(30),
+  -- Meta often mangles proposed names during approval, so these are configured
+  -- rather than hardcoded.
+  lead_template TEXT NOT NULL DEFAULT 'new_lead',
+  kyc_approved_template TEXT NOT NULL DEFAULT 'kyc_approved',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -476,3 +516,41 @@ SELECT cron.schedule(
   '30 18 * * *',
   $$ SELECT v3_rollup_day((NOW() - INTERVAL '1 day')::date); $$
 );
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Row Level Security
+--
+-- Every application table is locked down with RLS and NO policies. The backend
+-- connects with the service role key (BYPASSRLS) so it is unaffected; the anon
+-- and authenticated keys get zero rows. Without this, anyone holding the
+-- publishable key can read driver KYC URLs, Aadhaar numbers, rider phone
+-- numbers and every message transcript.
+--
+-- A NEW TABLE MUST BE ADDED HERE. A table created without RLS is world-readable.
+--
+-- spatial_ref_sys is excluded on purpose - PostGIS functions read it directly.
+-- storage.objects is excluded too; Supabase manages Storage separately.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+ALTER TABLE riders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE drivers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE trips ENABLE ROW LEVEL SECURITY;
+ALTER TABLE quotes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE lead_dispatches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE trip_otps ENABLE ROW LEVEL SECURITY;
+ALTER TABLE subscriptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversation_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bot_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ratings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE help_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE driver_daily ENABLE ROW LEVEL SECURITY;
+ALTER TABLE route_daily ENABLE ROW LEVEL SECURITY;
+ALTER TABLE daily_summary ENABLE ROW LEVEL SECURITY;
+
+-- Sanity check: every row must read true except spatial_ref_sys.
+SELECT relname, relrowsecurity
+FROM pg_class
+WHERE relnamespace = 'public'::regnamespace AND relkind = 'r'
+ORDER BY relname;

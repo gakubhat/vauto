@@ -40,6 +40,8 @@ function bodiesTo(phone: string): string[] {
 describe('cancel reasons', () => {
   it('asks a rider for a reason before cancelling, and stores it', async () => {
     await seedRider();
+    // A driver is notified so the rider is genuinely waiting and can cancel.
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
     const tripId = await postTrip();
 
     await riderStep({ text: findButtonId('cancel_trip_', RIDER_PHONE) as string });
@@ -69,6 +71,7 @@ describe('cancel reasons', () => {
 
   it('takes a typed reason when the rider picks Other', async () => {
     await seedRider();
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
     const tripId = await postTrip();
 
     await riderStep({ text: findButtonId('cancel_trip_', RIDER_PHONE) as string });

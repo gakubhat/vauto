@@ -9,6 +9,7 @@ export function Layout() {
         <NavLink to="/drivers">Drivers</NavLink>
         <NavLink to="/riders">Riders</NavLink>
         <NavLink to="/trips">Trips</NavLink>
+        <NavLink to="/help">Help</NavLink>
         <NavLink to="/sessions">Sessions</NavLink>
         <NavLink to="/analytics">Analytics</NavLink>
         <NavLink to="/settings">Settings</NavLink>

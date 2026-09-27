@@ -48,6 +48,7 @@ Consequences that drive the whole design:
 6. **No chat relay.** Phone numbers are revealed to both parties only after assignment.
 7. **No online payments.** Subscription is recorded by office staff after offline cash/QR.
 8. **No driver-side online/offline toggle.** Drivers are always in the matching pool; if they are not active they simply do not reply. Presence is inferred passively from delivery/read receipts and reply history.
+9. **Pickup and driver base are attached, not typed.** Both come from the native Send Location button because matching runs on coordinates; a typed name is rejected and re-prompted. The **destination** may be typed, and the missing pin is optionally collected after the ride.
 
 ## Routing
 
@@ -112,6 +113,7 @@ drivers(id, phone, name, vehicle_no,
 trips(id, trip_number, rider_id, driver_id, status,
       pickup_lat, pickup_lng, pickup_text,
       drop_lat, drop_lng, drop_text,
+      dispute_lat, dispute_lng, dispute_text,   -- evidence, only on a dispute
       distance_km,
       pickup_at,                               -- NULL = "now"; set for scheduled
       quote_window_closes_at,
@@ -125,6 +127,7 @@ quotes(id, trip_id, driver_id, amount_paise, status, created_at)
        -- status: pending | accepted | withdrawn | lapsed
 
 lead_dispatches(id, trip_id, driver_id, distance_km,
+                channel, template_name, wamid,     -- interactive | template
                 sent_at, delivered_at, read_at)   -- presence + analytics
 
 subscriptions(id, driver_id, paid_at, paid_amount_paise, paid_via,
@@ -139,10 +142,13 @@ events(id, at, actor_role, actor_id, trip_id, type, properties JSONB)
 bot_messages(id, phone, direction, role, message_type, body,
              trip_id, session_state, raw_payload, created_at)
 
+help_requests(id, phone, role, source, reason, trip_id,
+              opened_at, closed_at, closed_by)   -- source: help | dispute
+
 settings(singleton: quote_window_minutes, max_drivers_per_lead,
          default_radius_km, radius_options, auto_pick_cheapest,
          fare_check_enabled, trial_days, trial_min_rides, dispute_hours,
-         subscription_price_paise, renewal_contact)
+         subscription_price_paise, renewal_contact, helpline)
 ```
 
 **Constraints that carry the correctness load:**
@@ -172,10 +178,10 @@ ORDER BY distance ASC LIMIT max_drivers_per_lead;
 ```mermaid
 stateDiagram-v2
     [*] --> open: Rider confirms trip
-    open --> assigned: Rider taps Accept on a quote
-    open --> assigned: Window closes, cheapest auto-accepted
+    open --> assigned: Rider picks a quote from the list
     open --> cancelled: Rider cancels
     open --> expired: 30 min, no quotes
+    open --> expired: No autos cover the pickup - nobody notified
     expired --> open: Rider taps Try again
     assigned --> cancelled: Rider cancels (pre-OTP)
     assigned --> arrived: Driver taps "I've arrived"
@@ -188,10 +194,11 @@ stateDiagram-v2
 ## Quote mechanics
 
 1. Trip is created → matched drivers each receive a lead: *"Gandhi Circle → Bus Stand, 1.8 km. Reply with your price (e.g. 70)."* Lead also carries a `quote_{tripId}` button for drivers who prefer tapping.
-2. Driver replies with a number. That becomes a `quote`.
-3. **Each quote is pushed to the rider as it arrives**, with driver name, vehicle number, rating, distance, and an `Accept` button.
-4. Rider taps Accept → assignment.
-5. **At window close**, if the rider has not accepted anything, the cheapest quote is auto-accepted (setting `auto_pick_cheapest`).
+2. **The rider is told what dispatch actually did**: *"We told N autos nearby"* when drivers were reached, or *"No autos cover this area right now"* (with Try again / Change details) when nobody was — in which case the trip is expired **immediately** rather than left to run out a window that cannot produce a quote. Never show a driver count before booking: it is an implied promise the platform does not make.
+3. Driver replies with a number. That becomes a `quote`.
+4. **The rider gets one WhatsApp list of pending quotes**, refreshed as each quote arrives (name, vehicle, rating, amount). Tapping a row assigns that auto. Cancel is the last row. WhatsApp caps a list at 10 rows, so 9 quotes plus Cancel.
+5. Rider picks from the list → assignment.
+6. **At window close**, if the rider has not picked: they are asked to choose from the same list, with no time limit, and new quotes stop. Zero quotes → expire. Office can turn on `auto_pick_cheapest` to assign the cheapest instead (off by default — the rider chooses).
 
 ### The double-assignment guard
 
@@ -212,7 +219,7 @@ When a driver wins a trip, their other pending quotes are set to `withdrawn` and
 
 Rider chooses **Today / Tomorrow** then an **hour** from a list — two taps, no typing. `pickup_at` is stored; `quote_window_closes_at = pickup_at`.
 
-Leads for a scheduled trip go out ~2 hours before `pickup_at` (pg_cron). Scheduling is not just a convenience — it gives drivers hours to respond instead of minutes, which is the main mitigation for low driver response rates.
+Leads for a scheduled trip go out ~2 hours before `pickup_at` (pg_cron). Scheduling is not just a convenience — it gives drivers hours to respond instead of minutes, which is the main mitigation for low driver response rates. The rider is told at that moment what dispatch did — how many autos were notified, or that nobody covers the area — so a scheduled trip is never silently dead.
 
 ## Completion, cancellation, dispute
 
@@ -228,20 +235,106 @@ Leads for a scheduled trip go out ~2 hours before `pickup_at` (pg_cron). Schedul
 | Rating | Both directions, 1–5, after completion |
 | Fare check | Optional (setting, off by default in MVP): *"Ramesh quoted ₹70 — did you pay ₹70?"* Feeds quoted-vs-paid data |
 
+## Helpline
+
+The number users chat with is on the **WhatsApp Cloud API**, so it cannot take a
+voice call — a number on the API cannot also be a phone-app account. A helpline
+must therefore be a **separate number a person answers**, set as `helpline` in
+Admin → Settings.
+
+The bot gives it out wherever a user is stuck:
+
+| Where | Message |
+|---|---|
+| Rider or driver sends **help** / **ಸಹಾಯ** | *"Need help? Call us: {number}."* |
+| Trip disputed | *"To reach us now, call: {number}."* |
+| 10 wrong OTP attempts | *"Too many wrong codes. Please call the office. Call us: {number}."* |
+| KYC rejected | *"Please contact the office. Call us: {number}."* |
+
+**Every reply is unconditional.** With `helpline` unset, "help" still answers —
+*"Reply here with your problem and our office will help you."* — because a
+helpline that stays silent is worse than none. Both help messages also name the
+`help` command, so the path is discoverable without anyone knowing it exists.
+
+**A request is queued, not just answered.** Sending "help", or disputing a trip,
+opens a row in `help_requests` and the office sees it on **Admin → Help** with
+the last few messages and a *Mark handled* button. The bot's `disputed` message
+promises *"our office will call you"* — the queue is what makes that true. One
+open request per phone: a second "help" is the same person still waiting, not a
+duplicate.
+
+**And the office is told.** A row in a queue nobody opens is not a feature. On
+each *newly opened* request the office number (`office_number`) gets a WhatsApp
+message:
+
+> 🔔 Help needed
+> Ramesh (rider) +919448267561
+> Trip 1a2b3c4d
+> Open the admin → Help
+
+Disputes are marked 🔴 and more urgent. Sent once per request, not per tap, so a
+panicking user cannot spam the office. Never sent *to* the office about the
+office itself.
+
+`office_number` is the number the office **receives on**; `helpline` is the
+number users **dial**. They are often the same, and are separate settings
+because either can change alone. Replies from `office_number` are logged and
+then dropped — it is in neither `riders` nor `drivers`, so without that guard
+the bot would start a Rider/Driver signup with your own staff.
+
+`help_requested` is logged as an analytics event, so how often people need a
+human is measurable.
+
+Out of window this needs the utility template (see below): the reply itself is
+free-form, so it only lands if the user messaged within 24 hours — which they
+just did by sending "help".
+
 ## Subscription
 
 Trial = `trial_days` (default 30) **and** at least `trial_min_rides` completed — never charge a driver on a calendar alone if rider demand was thin. When lapsed: **no leads**. The bot tells the driver plainly and gives the renewal contact. Office records payment offline into `subscriptions` and extends `subscription_until`.
 
 ## Location
 
-Both pickup and drop use WhatsApp's native location attachment (it has a built-in search box). If the user types text instead, it is stored as `pickup_text` / `drop_text` and the trip proceeds — the driver sees the description. This handles users who cannot or will not attach a location.
+Pickup, destination and a driver's waiting spot all use WhatsApp's native
+location attachment (it has a built-in search box).
+
+**Pickup and a driver's base must be attached coordinates.** Matching runs on
+coordinates — `find_nearby_drivers` compares the driver's base point to the
+pickup point — so a typed area name is **rejected** with a re-prompt. Accepting
+one used to leave the rider (or a paying driver) silently invisible to the
+other; a typed pickup surfaced as a false *"No autos cover this area"*.
+
+**The destination may be typed** (`drop_text`, e.g. "bus stand"), because the
+driver reads the description and quotes from local knowledge. Such a trip has no
+`drop_lat/lng` and no `distance_km`. After the ride, on **both** "Yes" and "No",
+the rider is offered a one-tap location share (`awaiting_drop_proof`).
+
+The two answers are stored **separately**, because they mean different things:
+
+- **Yes** → writes `drop_lat/lng` and recomputes `distance_km`. `drop_text` is
+  left as typed, so the rider's own words survive alongside the pin.
+- **No** → writes `dispute_lat/lng/dispute_text`. A disputed trip's `drop_*` is
+  never overwritten: where the rider was standing is evidence, not the
+  destination.
+
+Skipping costs nothing and never delays the fare check or rating. Either answer
+logs `drop_location_captured` (with the geocoded address in its properties). The
+driver is never asked — they are the paying customer, and an end-of-trip
+location ask reads as tracking.
 
 **Readable addresses.** Coordinates are never shown to a user. In order of
 preference we use: the place name WhatsApp supplies (e.g. *Bus Stand*) → a
 reverse-geocoded address → a trimmed version of WhatsApp's own address blob.
+
+A reverse-geocoded label combines the **road, the area and the town** —
+`6th Cross, 6th Block, Bengaluru`. It must never be a single bare field:
+`6th Block` alone tells a driver nothing about where to go. When the
+structured lookup yields only one field, we fall back to the trimmed
+`display_name`, which usually carries the surrounding area too.
+
 Trimming drops country, state, PIN code and Plus Codes (`XF7H+8R3`), and keeps
-about three parts, so a line reads `6th Block, Sir MV Layout` rather than
-`… Bengaluru, Karnataka 560110, India`.
+about three parts, so a line reads `6th Block, Sir MV Layout, Bengaluru`
+rather than `… Bengaluru, Karnataka 560110, India`.
 
 The geocoder is pluggable via `GEOCODER` (`nominatim` by default — free, no key;
 `google` with `GOOGLE_MAPS_API_KEY`; `off`). It is best-effort: if it fails or
@@ -256,7 +349,7 @@ The point of v1 is to learn, so instrumentation is part of the MVP, not a follow
 
 **One append-only `events` table.** Never `UPDATE`, never `DELETE`. `properties JSONB` means new fields need no migration. Inserts are fire-and-forget and never block the message path.
 
-Event types: `trip_created · lead_sent · lead_delivered · lead_read · quote_received · quote_accepted · quote_withdrawn · trip_assigned · pickup_started · driver_arrived · otp_verified · done_marked · completed · cancelled · expired · disputed · rated · fare_reported · user_deleted`
+Event types: `trip_created · lead_sent · lead_delivered · lead_read · lead_dispatch_failed · quote_received · quote_accepted · quote_withdrawn · trip_assigned · pickup_started · driver_arrived · otp_verified · done_marked · completed · drop_location_captured · help_requested · cancelled · expired · disputed · rated · fare_reported · user_deleted`
 
 Timestamps are denormalised onto `trips` so the funnel is a single row scan: `created_at → first_quote_at → assigned_at → arrived_at → started_at → done_at → completed_at`.
 
@@ -280,8 +373,15 @@ Also log every inbound/outbound message to `bot_messages` for debugging and cost
 
 | Item | Status |
 |---|---|
-| **Utility template messages** | **Must build.** `api.ts` sends only free-form messages today. A driver who has not messaged for 24 hours falls outside the session window and cannot receive a lead at all. Critical. |
-| `statuses` webhook (`sent`/`delivered`/`read`) | **Must build.** This is how presence is inferred without asking the driver anything. Also feeds `lead_delivered` / `lead_read` analytics. |
+| **Utility template messages** | **Built.** A lead to a driver outside the 24h window goes out as the approved `lead_template` (configured in Admin → Settings, not hardcoded). A template has no Quote button, so its body copy must tell the driver to reply with a price. |
+| **`statuses` webhook** | **Built.** `delivered` / `read` receipts join back to `lead_dispatches` on **`wamid`** — the id Meta returns on send, *not* the trip id. Only template sends record a wamid. This is how presence is inferred without asking the driver anything. |
+| **KYC approval outside the window** | **Built.** Approving a driver who has not messaged in 24h uses `kyc_approved_template`; inside the window it stays free-form. KYC **rejection** is always free-form — it carries the helpline and expects a call. |
+| **Schema drift** | `schema.sql` must carry every column the code reads. `drivers.last_reply_at` decides interactive-vs-template; if it is missing from a rebuilt database every lead silently becomes a template. Verified against the live project on 2026-09-30: all 9 template/help/dispute columns present. |
+| **Label length caps** | Reply button **20**, list row **24**, list section title **24**, list open button **20**. `api.ts` slices defensively, but keep the copy short: Meta rejects the *whole* message with `131009` when a section title is too long, so the user gets nothing at all. |
+| **Helpline number** | Set `helpline` in Admin → Settings. The chat number is on the Cloud API and **cannot receive voice calls**, so this must be a separate phone a person answers. Unset, "help" still replies rather than staying silent. |
+| **Office alerts are free-form (TODO: template)** | `office_number` alerts go out as free-form messages, so Meta drops them if the office has not messaged the bot in 24h. **Register an `office_alert` utility template and send it when out of window** — otherwise a help request can arrive at the office silently never. Same pattern as `lead_template`. |
+| **Webhook signature** | Every POST is verified against `X-Hub-Signature-256` (HMAC-SHA256 of the raw body, constant-time compare). Needs `WHATSAPP_APP_SECRET`; unset, the server refuses to start. A forged request gets `401` and never reaches a flow. |
+| **Missing i18n keys** | `t()` echoes the key back when it is missing, so a button silently renders as its raw id (e.g. `trip_done`). Adding a button means adding its i18n entry. |
 | WhatsApp Flows | Available (`TextInput` with `input-type: number` and regex, `DatePicker`, up to 100 screens, 50 components/screen, 30-char CTA; response arrives as `interactive.nfm_reply.response_json`). **Deferred** — v1 uses buttons for scheduling. Later candidates: structured quote form, proper date picker. |
 | Role selection | Two reply buttons — Rider / Driver |
 | i18n | Kannada default, English toggle |

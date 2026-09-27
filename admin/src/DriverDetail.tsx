@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getDriver, patchDriver, recordSubscription, setApproval, overrideRole } from './api';
 import { DeleteUserButton } from './DeleteUserButton';
 import { KycImage } from './KycImage';
+import { RecoverPanel } from './RecoverPanel';
 
 interface DriverDetailData {
   id: string;
@@ -38,6 +39,9 @@ export function DriverDetail() {
   const [name, setName] = useState('');
   const [vehicle, setVehicle] = useState('');
   const [aadhaar, setAadhaar] = useState('');
+  const [baseLat, setBaseLat] = useState('');
+  const [baseLng, setBaseLng] = useState('');
+  const [baseText, setBaseText] = useState('');
 
   async function load() {
     setLoadError(null);
@@ -55,6 +59,9 @@ export function DriverDetail() {
     setName(row.name ?? '');
     setVehicle(row.vehicle_no ?? '');
     setAadhaar(row.aadhaar_no ?? '');
+    setBaseLat(typeof row.base_lat === 'number' ? String(row.base_lat) : '');
+    setBaseLng(typeof row.base_lng === 'number' ? String(row.base_lng) : '');
+    setBaseText(row.base_text ?? '');
   }
 
   useEffect(() => {
@@ -87,6 +94,27 @@ export function DriverDetail() {
       return;
     }
     void load();
+  }
+
+  // Matching runs on coordinates, so base is edited as numbers. Both or neither.
+  async function saveBase(id: string) {
+    const lat = baseLat.trim() === '' ? null : Number(baseLat);
+    const lng = baseLng.trim() === '' ? null : Number(baseLng);
+    if ((lat === null) !== (lng === null)) {
+      alert('Enter both latitude and longitude, or neither.');
+      return;
+    }
+    if ((lat !== null && !Number.isFinite(lat)) || (lng !== null && !Number.isFinite(lng))) {
+      alert('Latitude and longitude must be numbers.');
+      return;
+    }
+    await act(() =>
+      patchDriver(id, {
+        base_lat: lat,
+        base_lng: lng,
+        base_text: baseText.trim() === '' ? null : baseText.trim(),
+      }),
+    );
   }
 
   return (
@@ -194,11 +222,37 @@ export function DriverDetail() {
         <h2>Coverage</h2>
         <p className="muted">
           Base:{' '}
-          {d.base_lat !== null && d.base_lng !== null
+          {typeof d.base_lat === 'number' && typeof d.base_lng === 'number'
             ? `${d.base_lat.toFixed(4)}, ${d.base_lng.toFixed(4)}`
-            : d.base_text ?? 'not set'}
+            : d.base_text ?? 'not set'}{' '}
+          {typeof d.base_lat === 'number' && typeof d.base_lng === 'number' && (
+            <a
+              href={`https://www.google.com/maps?q=${d.base_lat},${d.base_lng}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              map
+            </a>
+          )}
         </p>
         <div className="row">
+          <label style={{ width: 90 }}>Base lat</label>
+          <input value={baseLat} onChange={(e) => setBaseLat(e.target.value)} style={{ width: 120 }} />
+          <label>lng</label>
+          <input value={baseLng} onChange={(e) => setBaseLng(e.target.value)} style={{ width: 120 }} />
+        </div>
+        <div className="row">
+          <label style={{ width: 90 }}>Label</label>
+          <input value={baseText} onChange={(e) => setBaseText(e.target.value)} />
+        </div>
+        <div className="row">
+          <button onClick={() => void saveBase(d.id)}>Save base location</button>
+          <span className="muted">
+            Right-click the waiting spot in Google Maps and paste the two numbers.
+          </span>
+        </div>
+        <div className="row">
+          <label style={{ width: 90 }}>Radius (km)</label>
           <input
             type="number"
             value={radius}
@@ -296,14 +350,17 @@ export function DriverDetail() {
         </table>
       </div>
 
+      <RecoverPanel phone={d.phone} />
+
       <div className="panel">
         <h2>Danger zone</h2>
         <div className="row">
           <button onClick={() => void act(() => overrideRole(d.id, 'rider'))}>
-            Clear session (role override)
+            Switch this phone to the rider flow
           </button>
           <span className="muted">
-            Clears the session so the phone&apos;s role re-resolves from the tables.
+            Only for a wrong Rider/Driver choice. Deletes the session so the role re-resolves from
+            the tables. Use <em>Reset to idle</em> above for a stuck conversation.
           </span>
         </div>
         <div className="row">

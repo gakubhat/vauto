@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getRider } from './api';
 import { DeleteUserButton } from './DeleteUserButton';
+import { RecoverPanel } from './RecoverPanel';
 
 interface RiderDetailData {
   id: string;
@@ -91,6 +92,8 @@ export function RiderDetail() {
           )}
         </tbody>
       </table>
+
+      <RecoverPanel phone={r.phone} />
 
       <div className="panel">
         <h2>Danger zone</h2>

@@ -40,6 +40,9 @@ export const config = {
   // Single WhatsApp number for everyone — riders and drivers alike.
   whatsappWebhookVerifyToken: required('WHATSAPP_WEBHOOK_VERIFY_TOKEN'),
   whatsappAccessToken: required('WHATSAPP_ACCESS_TOKEN'),
+  // Meta app secret, used to verify X-Hub-Signature-256 on every webhook POST.
+  // Without it anyone who learns the URL can inject fake messages and trips.
+  whatsappAppSecret: required('WHATSAPP_APP_SECRET'),
   whatsappPhoneNumberId: required('WHATSAPP_PHONE_NUMBER_ID'),
   whatsappBusinessPhone: required('WHATSAPP_BUSINESS_PHONE'),
   // Pinned so an upgrade is an env change, not a code change. Check the

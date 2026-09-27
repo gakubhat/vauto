@@ -1,12 +1,14 @@
 import { beforeAll, beforeEach, afterAll, describe, it, expect } from 'vitest';
 import { supabaseAdmin } from '../../src/supabase/client';
 import {
+  DRIVER_A_PHONE,
   PICKUP,
   RIDER_PHONE,
   findButtonId,
   messageLog,
   postTrip,
   riderStep,
+  seedDriver,
   seedRider,
   setupMockSendMessage,
   stateOf,
@@ -28,6 +30,8 @@ afterAll(async () => {
 describe('cancelling while waiting', () => {
   it('offers a Cancel button on the "finding an auto" message', async () => {
     await seedRider();
+    // A driver must be notified for the rider to actually be waiting.
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
     await postTrip();
 
     const cancel = findButtonId('cancel_trip_', RIDER_PHONE);
@@ -36,6 +40,7 @@ describe('cancelling while waiting', () => {
 
   it('cancels the trip when that button is tapped', async () => {
     await seedRider();
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
     const tripId = await postTrip();
 
     const cancel = findButtonId('cancel_trip_', RIDER_PHONE) as string;

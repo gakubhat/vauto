@@ -104,9 +104,9 @@ Docs in this repo:
 │   │   │   ├── onboarding.ts  pre-role: language then rider/driver
 │   │   │   └── flows/         rider.ts, driver.ts
 │   │   ├── lib/               matching, send, events, money, geo, phone,
-│   │   │                      delete-user, notify-driver
+│   │   │                      delete-user, notify-driver, help
 │   │   └── whatsapp/          spec, api (adapter), i18n, templates
-│   ├── supabase/schema.sql    full schema, drop-and-recreate
+│   ├── supabase/schema.sql    the one schema file, drop-and-recreate
 │   └── tests/                 harness.ts (no vitest), engine.ts (vitest wiring)
 └── admin/                     React dashboard (vite)
 ```
@@ -126,8 +126,12 @@ Docs in this repo:
 6. **No online payments.** Subscription recorded by office after offline cash/QR.
 7. **No driver online/offline toggle.** Drivers are always in the matching pool;
    presence is inferred from delivery/read receipts, never asked for.
-8. **Location is attached, not typed** — `location_request_message` gives a
-   native Send Location button. A typed area name is the fallback, never the ask.
+8. **Pickup and a driver's base are attached, not typed.** Both come from
+   `location_request_message`'s native Send Location button; matching runs on
+   coordinates, so a typed name is rejected and re-prompted. The **destination**
+   may be typed (`drop_text`) — the driver reads it and quotes from local
+   knowledge — and the missing pin is optionally collected after the ride
+   (`awaiting_drop_proof`).
 
 ---
 
@@ -136,6 +140,7 @@ Docs in this repo:
 ```bash
 cd server
 npm run dev              # API on :3000 (tsx watch)
+npm run build:all        # build admin, copy to server/public, start (one origin)
 npm test                 # vitest suites against the real DB
 npm run sim -- --phone +919999000001 --as rider        # interactive REPL
 npm run sim -- --script scripts/rider-demo.txt         # scripted replay
@@ -144,6 +149,7 @@ npm run check:whatsapp   # validate the access token
 npm run tunnel           # ngrok + print Meta callback URL
 
 cd ../admin && npm run dev    # dashboard on :5173, proxies /api to :3000
+                              # (dev alternative to build:all — not both at once)
 
 node scripts/gen-diagrams.mjs  # regenerate flow diagrams
 npm run check:docs             # docs-vs-code drift guard (also runs in npm test)
@@ -153,7 +159,10 @@ npm run check:docs             # docs-vs-code drift guard (also runs in npm test
 
 1. **Sequential, never parallel** — `fileParallelism: false`. Suites share one DB.
 2. **`truncateAll()`** in `beforeEach` and `afterAll`. It is destructive and
-   requires `ALLOW_DESTRUCTIVE_TESTS=true`.
+   requires `ALLOW_DESTRUCTIVE_TESTS=true`. **Every table with an FK to a wiped
+   table must itself be wiped first** — `driver_daily` references `drivers`, so
+   if it is left out the `drivers` delete is rejected and every suite fails with
+   `driver_daily_driver_id_fkey`. Add new tables to `truncateAll()`.
 3. **Assert on state, DB and messages** — messages can look right while the
    state is wrong. Use `stateOf(phone)`.
 4. `sendMessage` is never called for real: `setupMockSendMessage()` installs a
@@ -169,8 +178,15 @@ npm run check:docs             # docs-vs-code drift guard (also runs in npm test
 - **No comments unless asked** — the only accepted ones explain *why*.
 - Flow code emits the abstract `OutMessage` spec and never builds a WhatsApp
   payload. New message shapes go in `whatsapp/spec.ts` + `api.ts`.
-- Forward-only SQL migrations; keep `supabase/schema.sql` in sync with the live
-  schema.
+- **WhatsApp label caps**: reply buttons 20 chars, list rows 24, section titles
+  24. Meta rejects the whole message if a section title is too long, and a
+  missing i18n key renders the raw id as the button. `tests/whatsapp.test.ts`
+  guards both — it needs no database, so run it freely.
+- **One schema file.** `server/supabase/schema.sql` is the single source of
+  truth — drop-and-recreate, applied to the live project directly. There are no
+  separate migration scripts. If you change the schema, update `schema.sql` and
+  apply the delta to the live database; the file and the live schema must match
+  column for column.
 - **Never commit secrets.** `.env` is gitignored.
 
 ## Session resets are a known hazard
@@ -194,17 +210,23 @@ Two consequences to remember:
   That is intentional, but it looks like "the query is broken". All data access
   must go through the backend with the service role key.
 
-The SQL to (re)apply lives in `scripts/enable-rls.sql`. `spatial_ref_sys` and
-`storage.objects` are deliberately excluded.
+**A new table needs RLS enabled explicitly.** `scripts/enable-rls.sql` is the
+source of truth and lists every table; add the new table there and run it, or
+its rows are world-readable to anyone holding the publishable key. Applied to
+the live project on 2026-09-30 — all 16 application tables, `help_requests`
+included. `spatial_ref_sys` and `storage.objects` are deliberately excluded.
 
 ## Known gaps / next
 
 | Item | Status |
 |---|---|
-| **RLS** — enabled on `settings` only. Run `scripts/enable-rls.sql` to cover the rest | Half done |
-| Admin credentials are still the `.env.example` placeholders | Change before any deployment |
+| **RLS** | Enabled on **all 16 application tables** (no policies). Applied live 2026-09-30. Add new tables to `scripts/enable-rls.sql` | Done |
+| Webhook signature | `X-Hub-Signature-256` verified on every POST; forged requests get 401. Needs `WHATSAPP_APP_SECRET` | Done |
+| Per-staffer admin logins | Still one `ADMIN_PHONE` + password, one 12h JWT. No audit trail of *which* staffer acted | Open — before real data |
+| **`office_alert` template** | Office alerts are free-form, so they are dropped outside the 24h window. Register the template before relying on alerts | Open — add before real data |
+| Admin credentials are still the `.env.example` placeholders | Change before any deployment | Open |
 | Kannada copy needs review by a native speaker | Open |
-| Utility **template** messages (`sendTemplate`) exist but none are registered | Needed before drivers go idle >24h |
+| Utility **template** messages | Built — `lead_template` and `kyc_approved_template` are configured in Admin → Settings. Both must be registered and approved in Meta | Done (needs Meta registration) |
 | Tap-to-call button (`tel:` / `voice_call`) | Deferred; number reveal used instead |
 | `home_lat/home_lng` on riders | Written nowhere now; kept for a possible "book from home" |
 | Analytics nightly rollups | Built; `POST /admin/analytics/rollup` to backfill |

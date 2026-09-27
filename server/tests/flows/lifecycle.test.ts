@@ -53,9 +53,22 @@ describe('ride lifecycle', () => {
     const { data: quotes } = await supabaseAdmin.from('quotes').select('*').eq('trip_id', tripId);
     expect(quotes?.length).toBe(2);
 
-    // Each quote was pushed to the rider with an Accept button.
+    // Quotes arrive as one list the rider picks from, not a per-quote Accept.
     const acceptId = findButtonId('accept_quote_', RIDER_PHONE);
     expect(acceptId).toBeTruthy();
+    const lists = messageLog.filter(
+      (m) =>
+        m.to === RIDER_PHONE &&
+        m.msg.kind === 'list' &&
+        m.msg.sections.some((s) => s.rows.some((r) => r.id.startsWith('accept_quote_'))),
+    );
+    expect(lists.length).toBeGreaterThan(0);
+    const lastList = lists[lists.length - 1];
+    if (lastList.msg.kind !== 'list') throw new Error('expected list');
+    const quoteRows = lastList.msg.sections.flatMap((s) =>
+      s.rows.filter((r) => r.id.startsWith('accept_quote_')),
+    );
+    expect(quoteRows.length).toBe(2);
 
     await riderStep({ text: acceptId as string });
 

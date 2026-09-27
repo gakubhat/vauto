@@ -4,7 +4,9 @@ import { recordEvent } from '../../lib/events';
 import { estimateRoadKm } from '../../lib/geo';
 import { resolveAddress } from '../../lib/geocode';
 import { send } from '../../lib/send';
-import { dispatchLeads, placeLabel } from '../../lib/matching';
+import { dispatchLeads, noCoverExpire, placeLabel, sendRiderQuoteList } from '../../lib/matching';
+import { openHelpRequest } from '../../lib/help';
+import { handleHelpRequest, isHelpRequest } from '../../lib/help-command';
 import { langOf, t, type Lang } from '../../whatsapp/i18n';
 import * as tpl from '../../whatsapp/templates';
 import {
@@ -32,6 +34,25 @@ async function sendR(
   tripId?: string | null,
 ): Promise<void> {
   await send(phone, 'rider', msg, { sessionState: state, tripId: tripId ?? null });
+}
+
+/** After a completed ride: the fare check if enabled, then the rating. Reached
+ *  either straight from the confirmation or after the optional location ask. */
+async function afterCompletion(phone: string, tripId: string, lang: Lang): Promise<void> {
+  const trip = await getTrip(tripId);
+  const settings = await getSettings();
+  const driver = trip?.driver_id ? await getDriverById(trip.driver_id) : null;
+  if (settings.fare_check_enabled && trip) {
+    await upsertSession(phone, { state: 'awaiting_fare_confirm' });
+    return sendR(
+      phone,
+      tpl.fareCheck(lang, driver?.name ?? 'Driver', trip.quoted_amount_paise ?? 0),
+      'awaiting_fare_confirm',
+      tripId,
+    );
+  }
+  await upsertSession(phone, { state: 'awaiting_rating' });
+  return sendR(phone, tpl.rateList(lang, driver?.name ?? 'Driver'), 'awaiting_rating', tripId);
 }
 
 async function recordRating(
@@ -162,6 +183,21 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
   const state = session?.state ?? 'idle';
   const data = session?.data ?? {};
 
+  // ── Help, from anywhere ─────────────────────────────────────────────
+  // Before every state branch on purpose: a rider stuck mid-trip with an auto
+  // that never arrived is exactly who needs the office, and every active state
+  // below has its own handler that would otherwise swallow this.
+  if (isHelpRequest(text)) {
+    const reply = await handleHelpRequest(
+      phone,
+      'rider',
+      lang,
+      (data.pending_trip_id as string | undefined) ?? null,
+      rider.name,
+    );
+    return sendR(phone, reply, state, (data.pending_trip_id as string | undefined) ?? null);
+  }
+
   // ── Signup ──────────────────────────────────────────────────────────
   if (state === 'awaiting_name') {
     if (!text) return sendR(phone, tpl.askName(lang), 'awaiting_name');
@@ -174,19 +210,20 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
 
   // ── Booking: pickup and drop ────────────────────────────────────────
   if (state === 'awaiting_pickup_location') {
-    let patch: Record<string, unknown>;
-    if (input.location) {
-      const address = await resolveAddress(input.location.lat, input.location.lng, input.location);
-      patch = {
+    // Pickup must be a real location: matching runs on coordinates, so a typed
+    // name would leave the rider invisible to every driver in range.
+    if (!input.location) {
+      return sendR(phone, tpl.needLocation(lang), 'awaiting_pickup_location');
+    }
+    const address = await resolveAddress(input.location.lat, input.location.lng, input.location);
+    await upsertSession(phone, {
+      state: 'awaiting_drop_location',
+      data: {
         pickup_lat: input.location.lat,
         pickup_lng: input.location.lng,
         ...(address ? { pickup_text: address } : {}),
-      };
-    } else {
-      patch = { pickup_text: text };
-    }
-    if (!input.location && !text) return sendR(phone, tpl.askPickup(lang), 'awaiting_pickup_location');
-    await upsertSession(phone, { state: 'awaiting_drop_location', data: patch });
+      },
+    });
     return sendR(phone, tpl.askDrop(lang), 'awaiting_drop_location');
   }
 
@@ -310,14 +347,9 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
     if (tripId) {
       const trip = await getTrip(tripId);
       if (trip) {
-        const { data: quotes } = await supabaseAdmin
-          .from('quotes')
-          .select('amount_paise')
-          .eq('trip_id', tripId)
-          .eq('status', 'pending');
-        const amounts = ((quotes ?? []) as Array<{ amount_paise: number }>).map((q) => q.amount_paise);
-        const cheapest = amounts.length ? Math.min(...amounts) : 0;
-        return sendR(phone, tpl.quoteStatus(lang, amounts.length, cheapest), 'collecting_quotes', tripId);
+        const sent = await sendRiderQuoteList(trip);
+        if (sent) return;
+        return sendR(phone, tpl.findingAuto(lang, tripId), 'collecting_quotes', tripId);
       }
     }
     return sendR(phone, tpl.riderHelp(lang), 'idle');
@@ -354,11 +386,12 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
 
   if (state === 'awaiting_completion_confirm') {
     const tripId = data.pending_trip_id as string;
+    const trip = await getTrip(tripId);
+    // A typed destination leaves no coordinates - offer to fill them in.
+    const dropMissing = trip ? trip.drop_lat == null || trip.drop_lng == null : false;
     if (text === 'confirm_yes') {
       await updateTrip(tripId, { status: 'completed', completed_at: new Date().toISOString() });
       recordEvent('completed', { actorRole: 'rider', actorId: rider.id, tripId });
-      const trip = await getTrip(tripId);
-      const settings = await getSettings();
       if (trip && trip.driver_id) {
         // Ask the driver to rate the rider.
         const driver = await getDriverById(trip.driver_id);
@@ -374,27 +407,79 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
           });
         }
       }
-      if (settings.fare_check_enabled && trip) {
-        const driver = trip.driver_id ? await getDriverById(trip.driver_id) : null;
-        await upsertSession(phone, { state: 'awaiting_fare_confirm' });
-        return sendR(
-          phone,
-          tpl.fareCheck(lang, driver?.name ?? 'Driver', trip.quoted_amount_paise ?? 0),
-          'awaiting_fare_confirm',
-          tripId,
-        );
+      if (dropMissing) {
+        await upsertSession(phone, {
+          state: 'awaiting_drop_proof',
+          data: { pending_trip_id: tripId, proof_next: 'completed' },
+        });
+        return sendR(phone, tpl.dropProof(lang, 'completed'), 'awaiting_drop_proof', tripId);
       }
-      await upsertSession(phone, { state: 'awaiting_rating' });
-      const driver = trip?.driver_id ? await getDriverById(trip.driver_id) : null;
-      return sendR(phone, tpl.rateList(lang, driver?.name ?? 'Driver'), 'awaiting_rating', tripId);
+      return afterCompletion(phone, tripId, lang);
     }
     if (text === 'confirm_no') {
       await updateTrip(tripId, { status: 'disputed' });
       recordEvent('disputed', { actorRole: 'rider', actorId: rider.id, tripId });
+      // A dispute is a person needing a human - put it in front of the office.
+      await openHelpRequest({ phone, role: 'rider', source: 'dispute', tripId, name: rider.name });
+      const help = (await getSettings()).helpline ?? '-';
+      if (dropMissing) {
+        // Still worth capturing: where the rider is now is evidence for the office.
+        await upsertSession(phone, {
+          state: 'awaiting_drop_proof',
+          data: { pending_trip_id: tripId, proof_next: 'disputed' },
+        });
+        await sendR(phone, tpl.disputed(lang, help), 'awaiting_drop_proof', tripId);
+        return sendR(phone, tpl.dropProof(lang, 'disputed'), 'awaiting_drop_proof', tripId);
+      }
       await resetSession(phone, { state: 'idle', role: 'rider' });
-      return sendR(phone, tpl.disputed(lang), 'idle');
+      return sendR(phone, tpl.disputed(lang, help), 'idle');
     }
     return sendR(phone, tpl.completionConfirm(lang, 'Driver'), 'awaiting_completion_confirm', tripId);
+  }
+
+  if (state === 'awaiting_drop_proof') {
+    const tripId = data.pending_trip_id as string;
+    const proofNext = data.proof_next === 'disputed' ? 'disputed' : 'completed';
+    if (text === 'drop_proof_share') {
+      return sendR(phone, tpl.dropProofShare(lang), 'awaiting_drop_proof', tripId);
+    }
+    if (input.location) {
+      const trip = await getTrip(tripId);
+      const address = await resolveAddress(input.location.lat, input.location.lng, input.location);
+      const patch: Record<string, unknown> = {};
+      if (proofNext === 'disputed') {
+        // Evidence, not the destination: a disputed trip's drop pin must stand,
+        // and `drop_text` keeps whatever the rider originally typed.
+        patch.dispute_lat = input.location.lat;
+        patch.dispute_lng = input.location.lng;
+        if (address) patch.dispute_text = address;
+      } else {
+        // The pin the typed destination never had. `drop_text` is left alone so
+        // the rider's own words survive alongside the coordinates.
+        patch.drop_lat = input.location.lat;
+        patch.drop_lng = input.location.lng;
+        if (trip && typeof trip.pickup_lat === 'number' && typeof trip.pickup_lng === 'number') {
+          patch.distance_km = estimateRoadKm(
+            { lat: trip.pickup_lat, lng: trip.pickup_lng },
+            { lat: input.location.lat, lng: input.location.lng },
+          );
+        }
+      }
+      await updateTrip(tripId, patch);
+      recordEvent('drop_location_captured', {
+        actorRole: 'rider',
+        actorId: rider.id,
+        tripId,
+        properties: { after: proofNext, ...(address ? { address } : {}) },
+      });
+    }
+    // Anything else - including Skip - just continues. This optional ask must
+    // never hold up the rating or the end of the trip.
+    if (proofNext === 'disputed') {
+      await resetSession(phone, { state: 'idle', role: 'rider' });
+      return;
+    }
+    return afterCompletion(phone, tripId, lang);
   }
 
   if (state === 'awaiting_fare_confirm') {
@@ -499,8 +584,13 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
           current_trip_id: tripId,
           data: { pending_trip_id: tripId },
         });
-        await sendR(phone, tpl.findingAuto(lang, tripId), 'collecting_quotes', tripId);
-        await dispatchLeads({ ...trip, status: 'open', leads_dispatched: false });
+        const reopened: Trip = { ...trip, status: 'open', leads_dispatched: false };
+        const notified = await dispatchLeads(reopened);
+        if (notified === 0) {
+          await noCoverExpire(reopened);
+          return;
+        }
+        await sendR(phone, tpl.findingAuto(lang, tripId, notified), 'collecting_quotes', tripId);
         return;
       }
     }
@@ -587,7 +677,7 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
 
 // ── helpers ─────────────────────────────────────────────────────────────
 
-function confirmDistance(d: Record<string, unknown>): number {
+function confirmDistance(d: Record<string, unknown>): number | null {
   const a = d.pickup_lat as number | undefined;
   const b = d.pickup_lng as number | undefined;
   const c = d.drop_lat as number | undefined;
@@ -595,7 +685,7 @@ function confirmDistance(d: Record<string, unknown>): number {
   if ([a, b, c, e].every((v) => typeof v === 'number')) {
     return estimateRoadKm({ lat: a as number, lng: b as number }, { lat: c as number, lng: e as number });
   }
-  return 0;
+  return null;
 }
 
 async function createAndOpen(
@@ -619,8 +709,16 @@ async function createAndOpen(
     tripId: trip.id,
     properties: { pickup_at: trip.pickup_at, distance_km: trip.distance_km },
   });
+  if (!pickupAt) {
+    const notified = await dispatchLeads(trip);
+    if (notified === 0) {
+      await noCoverExpire(trip);
+      return;
+    }
+    await sendR(phone, tpl.findingAuto(lang, trip.id, notified), 'collecting_quotes', trip.id);
+    return;
+  }
   await sendR(phone, tpl.findingAuto(lang, trip.id), 'collecting_quotes', trip.id);
-  if (!pickupAt) await dispatchLeads(trip);
 }
 
 async function showActiveTrip(

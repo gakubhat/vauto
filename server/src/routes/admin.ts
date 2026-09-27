@@ -7,7 +7,7 @@ import { clearSettingsCache } from '../state/queries';
 import { deleteDriverCompletely, deleteRiderCompletely } from '../lib/delete-user';
 import { notifyDriverOfApproval } from '../lib/notify-driver';
 import { signedUrl } from '../lib/storage';
-import { deleteSession } from '../state/store';
+import { deleteSession, resetSession } from '../state/store';
 import { UnauthorizedError } from '../lib/errors';
 
 export const adminRouter = Router();
@@ -85,9 +85,18 @@ adminRouter.get('/stats', authenticate, async (_req: Request, res: Response) => 
     pending_kyc: await count('drivers', ['approval_status', 'pending']),
     active_drivers: await count('drivers', ['approval_status', 'approved']),
     disputed_open: await count('trips', ['status', 'disputed']),
+    help_open: await countOpenHelp(),
     riders_total: await count('riders'),
   });
 });
+
+async function countOpenHelp(): Promise<number> {
+  const { count: n } = await supabaseAdmin
+    .from('help_requests')
+    .select('id', { count: 'exact', head: true })
+    .is('closed_at', null);
+  return n ?? 0;
+}
 
 // ── Drivers ────────────────────────────────────────────────────────────
 
@@ -414,6 +423,122 @@ adminRouter.post('/trips/:id/status', authenticate, async (req: Request, res: Re
   res.json(data);
 });
 
+// ── Recovery ───────────────────────────────────────────────────────────
+//
+// For less tech-literate users, a stuck session is indistinguishable from a
+// broken bot: they send a message and nothing sensible comes back. The office
+// must be able to put someone back to a known-good state without a deploy.
+
+/**
+ * Reset (or clear) one person's conversation session.
+ *
+ * `to: 'idle'` keeps the row but wipes `data` and `current_trip_id` - the fix
+ * for a stale `pending_trip_id` or a state the flow no longer handles.
+ * `to: 'clear'` deletes the row entirely, so the next message re-resolves the
+ * role from `riders`/`drivers` and the signup states are skipped.
+ *
+ * Deliberately does NOT touch trips. A live trip is separate state, and
+ * force-closing it is a decision for Trip Detail where the office can see it.
+ */
+adminRouter.post('/sessions/:phone/reset', authenticate, async (req: Request, res: Response) => {
+  const phone = String(req.params.phone);
+  const { to } = req.body as { to?: string };
+
+  const { data: existing } = await supabaseAdmin
+    .from('conversation_sessions')
+    .select('phone, state, role, current_trip_id, data')
+    .eq('phone', phone)
+    .maybeSingle();
+
+  const session = existing as
+    | { phone: string; state: string; role: string | null; current_trip_id: string | null; data: Record<string, unknown> }
+    | null;
+
+  if (to === 'clear') {
+    await deleteSession(phone);
+    return res.json({
+      ok: true,
+      action: 'cleared',
+      note: 'Session deleted. The next message re-resolves the role from the riders/drivers tables.',
+      previous: session,
+    });
+  }
+
+  // Default is the safe one: keep the row, wipe the volatile bits.
+  await resetSession(phone, {
+    state: 'idle',
+    role: (session?.role as 'rider' | 'driver' | null) ?? null,
+    current_trip_id: null,
+    data: {},
+  });
+  res.json({
+    ok: true,
+    action: 'reset',
+    note: 'State set to idle with a clean data object. The trip, if any, is untouched.',
+    previous: session,
+  });
+});
+
+/** Everything the office needs to diagnose one person, in one call. */
+adminRouter.get('/recover/:phone', authenticate, async (req: Request, res: Response) => {
+  const phone = String(req.params.phone);
+
+  const [sessionRes, riderRes, driverRes, helpRes] = await Promise.all([
+    supabaseAdmin.from('conversation_sessions').select('*').eq('phone', phone).maybeSingle(),
+    supabaseAdmin.from('riders').select('id, name').eq('phone', phone).maybeSingle(),
+    supabaseAdmin.from('drivers').select('id, name, approval_status').eq('phone', phone).maybeSingle(),
+    supabaseAdmin
+      .from('help_requests')
+      .select('id, source, opened_at')
+      .eq('phone', phone)
+      .is('closed_at', null),
+  ]);
+
+  const session = sessionRes.data as Record<string, unknown> | null;
+  const rider = riderRes.data as { id: string; name: string | null } | null;
+  const driver = driverRes.data as { id: string; name: string | null } | null;
+
+  // A live trip blocks a new booking via one_active_trip_per_rider / _driver.
+  let blockingTrip: Record<string, unknown> | null = null;
+  const ownerId = rider?.id ?? driver?.id;
+  if (ownerId) {
+    const col = rider ? 'rider_id' : 'driver_id';
+    const { data } = await supabaseAdmin
+      .from('trips')
+      .select('id, trip_number, status, created_at')
+      .eq(col, ownerId)
+      .in('status', ['open', 'assigned', 'arrived', 'in_progress', 'disputed'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    blockingTrip = (data as Record<string, unknown> | null) ?? null;
+  }
+
+  const problems: string[] = [];
+  if (!session) problems.push('No session row — the row was deleted by the 24h cleanup or never created.');
+  if (session && !session.role) problems.push('Session has no role — the person will be asked Rider/Driver again.');
+  if (session && session.data && (session.data as Record<string, unknown>).pending_trip_id && !blockingTrip) {
+    problems.push('Stale pending_trip_id with no matching live trip — cancel and status will misbehave.');
+  }
+  if (blockingTrip && blockingTrip.status === 'disputed') {
+    problems.push('A disputed trip is blocking a new booking. Close it in Trip Detail.');
+  }
+  if (!rider && !driver) problems.push('Phone is in neither riders nor drivers — they will go through signup again.');
+
+  res.json({
+    phone,
+    session,
+    rider,
+    driver,
+    help_open: helpRes.data ?? [],
+    blocking_trip: blockingTrip,
+    problems,
+    session_age_seconds: session?.updated_at
+      ? Math.round((Date.now() - new Date(session.updated_at as string).getTime()) / 1000)
+      : null,
+  });
+});
+
 // ── Debugging surfaces ─────────────────────────────────────────────────
 
 adminRouter.get('/sessions', authenticate, async (_req: Request, res: Response) => {
@@ -422,6 +547,52 @@ adminRouter.get('/sessions', authenticate, async (_req: Request, res: Response) 
     .select('*')
     .order('updated_at', { ascending: false });
   res.json(data ?? []);
+});
+
+// ── Help requests ──────────────────────────────────────────────────────
+
+/** Open requests first (oldest waiting at the top), then the recently closed. */
+adminRouter.get('/help', authenticate, async (req: Request, res: Response) => {
+  const { open } = req.query as Record<string, string | undefined>;
+  let query = supabaseAdmin
+    .from('help_requests')
+    .select('*')
+    .order('opened_at', { ascending: true })
+    .limit(200);
+  if (open === '1') query = query.is('closed_at', null);
+  const { data } = await query;
+  const rows = ((data ?? []) as Array<{ closed_at: string | null; phone: string }>).sort((a, b) => {
+    if (!a.closed_at && b.closed_at) return -1;
+    if (a.closed_at && !b.closed_at) return 1;
+    return 0;
+  });
+
+  // Attach the last couple of messages so the office has context without a
+  // second click. Same transcript the Sessions page shows.
+  const withContext = await Promise.all(
+    rows.map(async (r) => {
+      const { data: messages } = await supabaseAdmin
+        .from('bot_messages')
+        .select('direction, body, created_at')
+        .eq('phone', r.phone)
+        .order('created_at', { ascending: false })
+        .limit(3);
+      return { ...r, recent: (messages ?? []).reverse() };
+    }),
+  );
+  res.json(withContext);
+});
+
+adminRouter.post('/help/:id/close', authenticate, async (req: Request, res: Response) => {
+  const { data, error } = await supabaseAdmin
+    .from('help_requests')
+    .update({ closed_at: new Date().toISOString(), closed_by: config.adminPhone })
+    .eq('id', req.params.id)
+    .is('closed_at', null)
+    .select()
+    .single();
+  if (error) return res.status(400).json({ error: error.message });
+  res.json(data);
 });
 
 adminRouter.get('/events', authenticate, async (req: Request, res: Response) => {
@@ -466,6 +637,10 @@ adminRouter.put('/settings', authenticate, async (req: Request, res: Response) =
     'scheduled_lead_hours',
     'subscription_price_paise',
     'renewal_contact',
+    'helpline',
+    'office_number',
+    'lead_template',
+    'kyc_approved_template',
   ];
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   for (const k of allowed) if (k in b) patch[k] = b[k];
