@@ -85,7 +85,7 @@ async function nominatim(lat: number, lng: number): Promise<string | null> {
   const res = await fetch(url, {
     headers: {
       // Nominatim requires a identifying User-Agent and asks for low volume.
-      'User-Agent': 'VJobsAutoBoard/0.1 (contact: office)',
+      'User-Agent': 'VAuto/0.1 (contact: office)',
       Accept: 'application/json',
     },
   });

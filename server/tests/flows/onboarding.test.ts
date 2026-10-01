@@ -35,8 +35,8 @@ describe('new user onboarding', () => {
     expect(first).toHaveLength(1);
     expect(first[0].msg.kind).toBe('buttons');
     const body = (first[0].msg as { body: string }).body;
-    expect(body).toContain('Welcome to VJobs');
-    expect(body).toContain('ವಿಜಾಬ್ಸ್');
+    expect(body).toContain('Welcome to VAuto');
+    expect(body).toContain('ವಿಆಟೋ');
 
     const ids = (first[0].msg as { buttons: Array<{ id: string }> }).buttons.map((b) => b.id);
     expect(ids).toEqual(expect.arrayContaining(['lang_kannada', 'lang_english']));

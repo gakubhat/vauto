@@ -175,3 +175,25 @@ describe('readable addresses', () => {
     expect(shortenAddress(DISPLAY)).toBe('6th Block, Sir MV Layout, Bengaluru');
   });
 });
+
+/**
+ * The product was renamed VAuto. A string left saying VJobs reaches a rider
+ * directly, and nothing else would fail - the flow tests assert behaviour, not
+ * branding. Scanning the source catches a new key written with the old name,
+ * which is how the rename would creep back.
+ */
+describe('brand name', () => {
+  const i18nSrc = fs.readFileSync(path.join(ROOT, 'server/src/whatsapp/i18n.ts'), 'utf8');
+
+  it('never says VJobs in a user-facing string', () => {
+    expect(i18nSrc).not.toMatch(/VJobs/);
+    expect(i18nSrc).not.toContain('ವಿಜಾಬ್ಸ್');
+  });
+
+  it('names the product VAuto in both languages', () => {
+    expect(t('welcome', 'english')).toContain('VAuto');
+    expect(t('welcome', 'kannada')).toContain('ವಿಆಟೋ');
+    expect(t('post_complete', 'english')).toContain('VAuto');
+    expect(t('post_complete', 'kannada')).toContain('ವಿಆಟೋ');
+  });
+});

@@ -74,6 +74,6 @@ describe('office notifications', () => {
 
     expect(bodies.some((b) => b.includes('Thanks for the rating'))).toBe(true);
     // The closing message tells them how to start the next one.
-    expect(bodies.some((b) => b.includes('Thanks for using VJobs'))).toBe(true);
+    expect(bodies.some((b) => b.includes('Thanks for using VAuto'))).toBe(true);
   }, 60000);
 });

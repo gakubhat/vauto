@@ -10,7 +10,7 @@ type Entry = { en: string; kn: string };
 
 const T: Record<string, Entry> = {
   // Shared
-  welcome: { en: 'Welcome to VJobs!', kn: 'ವಿಜಾಬ್ಸ್‌ಗೆ ಸ್ವಾಗತ!' },
+  welcome: { en: 'Welcome to VAuto!', kn: 'ವಿಆಟೋಗೆ ಸ್ವಾಗತ!' },
   role_prompt: {
     en: 'Welcome! Are you here to book an auto, or are you an auto driver?',
     kn: 'ನಮಸ್ಕಾರ! ನೀವು ಆಟೋ ಬುಕ್ ಮಾಡಲು ಬಂದಿದ್ದೀರಾ ಅಥವಾ ನೀವು ಆಟೋ ಚಾಲಕರಾ?',
@@ -218,8 +218,8 @@ const T: Record<string, Entry> = {
     kn: 'ನಿಮ್ಮ ದಾಖಲೆಗಳು ಅನುಮೋದನೆ ಆಗಿಲ್ಲ. ದಯವಿಟ್ಟು ಕಚೇರಿಗೆ ಸಂಪರ್ಕಿಸಿ. ನಮಗೆ ಕರೆ ಮಾಡಿ: {phone}',
   },
   post_complete: {
-    en: 'Thanks for using VJobs! Just say Hi when you need another auto. Or say Language / ಭಾಷೆ to switch.',
-    kn: 'ವಿಜಾಬ್ಸ್ ಬಳಸಿದ್ದಕ್ಕೆ ಧನ್ಯವಾದ! ಮತ್ತೆ ಆಟೋ ಬೇಕಾದಾಗ ಹಾಯ್ ಕಳುಹಿಸಿ. ಅಥವಾ ಭಾಷೆ ಎಂದು ಕಳುಹಿಸಿ.',
+    en: 'Thanks for using VAuto! Just say Hi when you need another auto. Or say Language / ಭಾಷೆ to switch.',
+    kn: 'ವಿಆಟೋ ಬಳಸಿದ್ದಕ್ಕೆ ಧನ್ಯವಾದ! ಮತ್ತೆ ಆಟೋ ಬೇಕಾದಾಗ ಹಾಯ್ ಕಳುಹಿಸಿ. ಅಥವಾ ಭಾಷೆ ಎಂದು ಕಳುಹಿಸಿ.',
   },
 
   // Driver trips
