@@ -65,13 +65,25 @@ export function Settings() {
         {num('Quote window (minutes)', 'quote_window_minutes')}
         {num('Max drivers per lead', 'max_drivers_per_lead')}
         {num('Default radius (km)', 'default_radius_km')}
-        {num('Trial days', 'trial_days')}
-        {num('Trial minimum rides', 'trial_min_rides')}
         {num('Auto-dispute after (hours)', 'dispute_hours')}
         {num('Scheduled lead hours before pickup', 'scheduled_lead_hours')}
-        {num('Subscription price (paise)', 'subscription_price_paise')}
         {bool('Auto-pick cheapest at window close (off = rider chooses)', 'auto_pick_cheapest')}
         {bool('Fare check after drop', 'fare_check_enabled')}
+
+        <h3 style={{ marginTop: 24 }}>Driver subscription</h3>
+        <p className="muted" style={{ marginBottom: 12 }}>
+          A driver is cut off only when <code>subscription_until</code> has
+          passed. Approving a driver sets it 30 days ahead; a driver whose date
+          is never set is never gated, which is the current launch position.
+          <br />
+          <strong>Trial days and trial minimum rides are not enforced.</strong>{' '}
+          They are stored but nothing reads them. Do not rely on them to end a
+          free period — set <code>subscription_until</code> on the driver
+          instead.
+        </p>
+        {num('Trial days (stored, NOT enforced)', 'trial_days')}
+        {num('Trial minimum rides (stored, NOT enforced)', 'trial_min_rides')}
+        {num('Subscription price (paise)', 'subscription_price_paise')}
         <div className="row">
           <label style={{ width: 220 }}>Renewal contact</label>
           <input

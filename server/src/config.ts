@@ -56,6 +56,14 @@ export const config = {
   // Off by default - deletion is irreversible and removes KYC documents.
   allowAdminDelete: optionalBool('ALLOW_ADMIN_DELETE', false),
 
+  // Normally the office number is dropped at the webhook, because a reply from
+  // it is a response to an alert and would otherwise start a signup with our
+  // own staff. Turning this on lets the office number use the bot as a rider,
+  // which is how screenshots and demos are captured. Leave it off in production
+  // or the office stops being able to answer its own alerts without the bot
+  // replying at them.
+  allowOfficeAsUser: optionalBool('ALLOW_OFFICE_AS_USER', false),
+
   // 'nominatim' (free, no key), 'google' (needs GOOGLE_MAPS_API_KEY) or 'off'.
   geocoder: optional('GEOCODER', 'nominatim'),
   googleMapsApiKey: optional('GOOGLE_MAPS_API_KEY', ''),

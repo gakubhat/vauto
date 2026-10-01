@@ -496,6 +496,15 @@ export async function handleDriverMessage(phone: string, input: DriverInput): Pr
     return sendD(phone, tpl.languageMenu(lang), 'awaiting_language');
   }
 
+  // A greeting is not an unknown command. Falling through to `driverHelp` here
+  // told a driver with no open trips to "reply with a number to quote", which
+  // he cannot act on.
+  const greet = text.trim().toLowerCase();
+  if (['hi', 'hello', 'hey', 'namaskara', 'ನಮಸ್ಕಾರ', 'ಹಾಯ್'].includes(greet)) {
+    const open = await openDispatchedTrips(driver.id);
+    return sendD(phone, tpl.driverHail(lang, open.length), 'idle');
+  }
+
   return sendD(phone, tpl.driverHelp(lang), 'idle');
 }
 

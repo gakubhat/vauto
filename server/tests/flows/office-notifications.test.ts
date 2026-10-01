@@ -40,6 +40,26 @@ describe('office notifications', () => {
     expect(body).toContain('verified');
   }, 60000);
 
+  /**
+   * A driver's first ever mention of money used to be the message telling them
+   * their subscription had lapsed. Approval is the one moment we have their
+   * attention, so the terms belong here.
+   */
+  it('states the current terms when approving a driver', async () => {
+    const driverId = await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, language: 'english' });
+
+    await notifyDriverOfApproval(driverId, 'approve');
+
+    const body = messageLog
+      .filter((m) => m.to === DRIVER_A_PHONE)
+      .map((m) => (m.msg as { body: string }).body)
+      .join('\n');
+
+    expect(body).toContain('free');
+    expect(body.toLowerCase()).toContain('before that changes');
+    expect(body).toContain('HELP');
+  }, 60000);
+
   it('tells a driver when the office rejects them', async () => {
     const driverId = await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, language: 'english' });
 

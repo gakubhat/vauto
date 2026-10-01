@@ -172,7 +172,15 @@ Two ways to answer, both valid:
 | 12 | "radius" / "ವ್ಯಾಪ್ತಿ" | → `awaiting_radius_change` |
 | 13 | "language" / "ಭಾಷೆ" / "kannada" / "english" | Language |
 | — | "help" / "ಸಹಾಯ" | **Checked before every state branch**, including the approval gate. Queues a help request and replies with the helpline |
-| 14 | Anything else | Help: *"Reply with a number to quote. Send your location to update where you wait."* |
+| 14 | "hi" / "hello" / "hey" / "namaskara" / "ನಮಸ್ಕಾರ" / "ಹಾಯ್" | Greeting. Replies with work status: with open trips, *"you have {n} open — reply with your price"*; with none, *"you are all set, we will message you when a trip comes up"* |
+| 15 | Anything else | Help: *"Reply with a number to quote. Send your location to update where you wait."* |
+
+**Why greetings are their own branch (#14) and not part of the fall-through.**
+They were previously #14 with everything else, so a driver who had just been
+approved and said "Hi" was told to *"reply with a number to quote"* — an
+instruction he could not act on, because no trip had been dispatched to him.
+The fall-through message assumes the driver has work; the greeting must not.
+Greetings now report the driver's real situation instead.
 
 ## Message priority while a trip is active
 
@@ -241,6 +249,8 @@ and `trips.cancel_reason` holds the typed text.
 9. **Lead undelivered** — recorded from the `statuses` webhook. Never re-sent automatically in v1; used only for presence analytics.
 10. **Session expired (>24h)** — row deleted by cron; role re-resolved from `drivers`, so the driver never re-picks a role and never re-signs up.
 11. **Office changes a role** — only staff can move a phone between `riders` and `drivers`. The session is deleted by staff action so the new role takes effect on the next message.
+12. **Newly approved driver says "Hi"** — he is told he is all set and will be messaged when a trip comes up, **not** told to quote. The fall-through used to send *"reply with a number to quote"*, which instructs a driver to act on a trip that was never dispatched to him. A driver with open trips and says "Hi" gets the count and the nudge to price instead.
+13. **Office number messages the bot** — dropped by design, logged as inbound with body `(office reply - not processed)`. The office answers alerts from this number, so without the guard their reply would start a rider/driver signup with staff. **Consequence: the office number cannot test the bot, and cannot itself be a rider or driver.**
 
 ## Deferred (documented, not built)
 

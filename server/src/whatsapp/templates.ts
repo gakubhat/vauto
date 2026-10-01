@@ -629,3 +629,14 @@ export function baseUpdated(lang: Lang): OutMessage {
 export function driverHelp(lang: Lang): OutMessage {
   return { kind: 'text', body: t('driver_help', lang) };
 }
+
+/** A driver said hello, from idle. Tells the truth about whether they have work. */
+export function driverHail(lang: Lang, openTrips: number): OutMessage {
+  return {
+    kind: 'text',
+    body:
+      openTrips > 0
+        ? t('driver_hail_waiting', lang, { n: openTrips })
+        : t('driver_hail', lang),
+  };
+}

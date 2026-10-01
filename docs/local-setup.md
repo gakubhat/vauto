@@ -19,8 +19,35 @@ rather than behaving strangely.
 | `WHATSAPP_PHONE_NUMBER_ID` | Which number to send from | Sends fail with a payload error |
 | `WHATSAPP_APP_SECRET` | Verifies `X-Hub-Signature-256` on every webhook POST | **Every inbound message is rejected with 401** — the bot looks dead |
 | `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | One-time webhook handshake with Meta | Meta cannot verify the callback URL |
+| `ALLOW_OFFICE_AS_USER` | Lets the **office number** use the bot as a rider — for screenshots and demos | Off by default. Leaving it **on** breaks the office's ability to answer alerts, see below |
 
-Check the WhatsApp pair any time:
+### `ALLOW_OFFICE_AS_USER` — testing from the office phone
+
+Messages from `settings.office_number` are **dropped at the webhook** by default.
+The office answers alerts from that number, so without the guard a reply like
+"yes, handling it" would be read as a customer message and start a rider signup
+with your own staff.
+
+The consequence is that **the office number cannot test the bot**: send "Hi"
+and nothing comes back, because the message is logged and discarded. It looks
+exactly like a broken webhook.
+
+To capture screenshots or run a demo from the WhatsApp Business app, set:
+
+```
+ALLOW_OFFICE_AS_USER=true
+```
+
+and restart. The office number then behaves like any other number.
+
+**Turn it back off afterwards.** With it on, the office can no longer answer its
+own alerts without the bot replying at them.
+
+Also worth knowing: the two numbers with existing accounts are **drivers**
+(`+918553466561`, `+919448267561`). A driver can never book a ride, so use a
+third number — or the office number with the flag on — to walk the rider flow.
+
+## Check the WhatsApp pair any time
 
 ```bash
 cd server && npm run check:whatsapp

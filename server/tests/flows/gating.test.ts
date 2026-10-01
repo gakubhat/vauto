@@ -166,4 +166,40 @@ describe('idle priority', () => {
     expect(s?.data?.pending_trip_id).toBeUndefined();
     void tripId;
   }, 60000);
+
+  /**
+   * A newly approved driver has no trip dispatched to him. Saying "Hi" used to
+   * fall through to the idle catch-all and answer "Reply with a number to
+   * quote" - an instruction he cannot act on, and the first thing he hears
+   * after being approved.
+   */
+  it('greets an idle driver with no trips without asking him to quote', async () => {
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+
+    await driverStep(DRIVER_A_PHONE, { text: 'Hi' });
+
+    const body = messageLog
+      .filter((m) => m.to === DRIVER_A_PHONE)
+      .map((m) => (m.msg as { body: string }).body)
+      .join('\n');
+
+    expect(body).not.toContain('Reply with a number to quote');
+    expect(body.toLowerCase()).toContain('all set');
+  }, 60000);
+
+  it('greets a driver who has work by telling him how many trips are open', async () => {
+    await seedRider();
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+    await postTrip();
+
+    messageLog.length = 0;
+    await driverStep(DRIVER_A_PHONE, { text: 'hello' });
+
+    const body = messageLog
+      .filter((m) => m.to === DRIVER_A_PHONE)
+      .map((m) => (m.msg as { body: string }).body)
+      .join('\n');
+
+    expect(body).toContain('1 trip');
+  }, 60000);
 });

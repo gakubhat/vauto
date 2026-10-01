@@ -232,8 +232,17 @@ webhookRouter.post('/', async (req: Request, res: Response) => {
   // The office answers alerts from this number. It is in neither riders nor
   // drivers, so without this guard their reply would start the Rider/Driver
   // signup with our own staff. Logged, then dropped.
+  //
+  // ALLOW_OFFICE_AS_USER turns the drop off, so the office can use the bot as a
+  // rider for screenshots and demos. It stays on by default: with it off the
+  // office can answer an alert "yes, handling it" without the bot misreading
+  // that as a customer.
   const settings = await getSettings();
-  if (settings.office_number && normalisePhone(settings.office_number) === normalisePhone(phone)) {
+  if (
+    !config.allowOfficeAsUser &&
+    settings.office_number &&
+    normalisePhone(settings.office_number) === normalisePhone(phone)
+  ) {
     logMessage({
       phone,
       direction: 'inbound',

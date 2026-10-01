@@ -210,8 +210,8 @@ const T: Record<string, Entry> = {
     kn: 'ಕ್ಷಮಿಸಿ, ಆ ಫೋಟೋ ಬಂದಿಲ್ಲ. ದಯವಿಟ್ಟು ಇನ್ನೊಮ್ಮೆ ಕಳುಹಿಸಿ, ಅಥವಾ ಬಿಡಿ ಒತ್ತಿರಿ.',
   },
   kyc_verified: {
-    en: 'Your documents are verified. Trips will now start coming to you.',
-    kn: 'ನಿಮ್ಮ ದಾಖಲೆಗಳು ಪರಿಶೀಲನೆಯಾಗಿವೆ. ಈಗ ನಿಮಗೆ ಪ್ರಯಾಣಗಳು ಬರುತ್ತವೆ.',
+    en: 'Your documents are verified. Trips will now start coming to you.\n\nJoining is free, and using it is free for now. We will tell you well before that changes — you will never be charged without warning. Reply HELP at any time.',
+    kn: 'ನಿಮ್ಮ ದಾಖಲೆಗಳು ಪರಿಶೀಲನೆಯಾಗಿವೆ. ಈಗ ನಿಮಗೆ ಪ್ರಯಾಣಗಳು ಬರುತ್ತವೆ.\n\nಸೇರುವುದು ಉಚಿತ, ಸದ್ಯ ಬಳಸುವುದೂ ಉಚಿತ. ಬದಲಾವಣೆ ಬಗ್ಗೆ ನಾವು ಮೊದಲೇ ತಿಳಿಸುತ್ತೇವೆ — ಮುನ್ಸೂಚನೆ ಇಲ್ಲದೆ ಎಂದೂ ಶುಲ್ಕ ವಿಧಿಸುವುದಿಲ್ಲ. ಯಾವಾಗ ಬೇಕಾದರೂ HELP ಎಂದು ಕಳುಹಿಸಿ.',
   },
   kyc_rejected: {
     en: 'Your documents were not approved. Please contact the office. Call us: {phone}',
@@ -330,14 +330,27 @@ const T: Record<string, Entry> = {
     kn: 'ಆಟೋ ರದ್ದಾಯಿತು. ಮತ್ತೆ ಹುಡುಕಲು ಕೆಳಗೆ ಒತ್ತಿರಿ.',
   },
   sub_lapsed: {
-    en: 'Your subscription ended. Pay {price} to keep receiving trips - contact {contact}.',
-    kn: 'ನಿಮ್ಮ ಚಂದಾದಾರಿಕೆ ಮುಗಿಯಿತು. ಪ್ರಯಾಣಗಳು ಬರಲು {price} ಪಾವತಿಸಿ - {contact} ಸಂಪರ್ಕಿಸಿ.',
+    en: 'Your subscription has ended, so trips have paused. Pay {price} to start receiving them again - contact {contact}. Your autos and your prices stay exactly as you set them.',
+    kn: 'ನಿಮ್ಮ ಚಂದಾದಾರಿಕೆ ಮುಗಿದಿದೆ, ಹಾಗಾಗಿ ಪ್ರಯಾಣಗಳು ನಿಂತಿವೆ. ಮತ್ತೆ ಪಡೆಯಲು {price} ಪಾವತಿಸಿ - {contact} ಸಂಪರ್ಕಿಸಿ. ನಿಮ್ಮ ಆಟೋ ಮತ್ತು ನಿಮ್ಮ ಬೆಲೆಗಳು ಹಾಗೆಯೇ ಉಳಿಯುತ್ತವೆ.',
   },
   update_base: { en: 'Update where you wait to this location?', kn: 'ನೀವು ಕಾಯುವ ಸ್ಥಳವನ್ನು ಇದಕ್ಕೆ ಬದಲಿಸುವುದೇ?' },
   base_updated: { en: 'Location updated.', kn: 'ಸ್ಥಳ ಬದಲಾಗಿದೆ.' },
   driver_help: {
     en: 'Reply with a number to quote. Send your location to update where you wait. Send "help" to call us.',
     kn: 'ಬೆಲೆ ಹೇಳಲು ಸಂಖ್ಯೆ ಕಳುಹಿಸಿ. ಕಾಯುವ ಸ್ಥಳ ಬದಲಿಸಲು ಸ್ಥಳ ಕಳುಹಿಸಿ. ನಮಗೆ ಕರೆ ಮಾಡಲು "ಸಹಾಯ" ಕಳುಹಿಸಿ.',
+  },
+  /**
+   * A driver said hello. Distinct from `driver_help`, which is the catch-all -
+   * that one told a driver with no trips to "reply with a number to quote",
+   * which is something he cannot do.
+   */
+  driver_hail: {
+    en: 'Namaskara! You are all set. We will message you here the moment a trip comes up near you - then just reply with your price.',
+    kn: 'ನಮಸ್ಕಾರ! ನೀವು ಸಿದ್ಧರಿದ್ದೀರಿ. ನಿಮ್ಮ ಹತ್ತಿರ ಪ್ರಯಾಣ ಬಂದ ಕೂಡಲೇ ಇಲ್ಲಿ ಸಂದೇಶ ಕಳುಹಿಸುತ್ತೇವೆ - ಆಗ ನಿಮ್ಮ ಬೆಲೆ ಕಳುಹಿಸಿ.',
+  },
+  driver_hail_waiting: {
+    en: 'Namaskara! You have {n} trip(s) open right now - reply with your price, like 70.',
+    kn: 'ನಮಸ್ಕಾರ! ಈಗ {n} ಪ್ರಯಾಣ ತೆರೆದಿದೆ - ನಿಮ್ಮ ಬೆಲೆ ಕಳುಹಿಸಿ, ಉದಾ 70.',
   },
 };
 
