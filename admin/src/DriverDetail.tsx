@@ -15,6 +15,7 @@ interface DriverDetailData {
   base_text: string | null;
   radius_km: number;
   approval_status: string;
+  preferred_language: string;
   aadhaar_no: string | null;
   vehicle_verified: boolean;
   kyc_aadhaar_url: string | null;
@@ -42,6 +43,7 @@ export function DriverDetail() {
   const [baseLat, setBaseLat] = useState('');
   const [baseLng, setBaseLng] = useState('');
   const [baseText, setBaseText] = useState('');
+  const [language, setLanguage] = useState('kannada');
 
   async function load() {
     setLoadError(null);
@@ -62,6 +64,7 @@ export function DriverDetail() {
     setBaseLat(typeof row.base_lat === 'number' ? String(row.base_lat) : '');
     setBaseLng(typeof row.base_lng === 'number' ? String(row.base_lng) : '');
     setBaseText(row.base_text ?? '');
+    setLanguage(row.preferred_language === 'english' ? 'english' : 'kannada');
   }
 
   useEffect(() => {
@@ -166,6 +169,19 @@ export function DriverDetail() {
           <button onClick={() => void act(() => patchDriver(d.id, { aadhaar_no: aadhaar }))}>
             Save
           </button>
+        </div>
+        <div className="row">
+          <label style={{ width: 90 }}>Language</label>
+          <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+            <option value="kannada">ಕನ್ನಡ</option>
+            <option value="english">English</option>
+          </select>
+          <button onClick={() => void act(() => patchDriver(d.id, { preferred_language: language }))}>
+            Save
+          </button>
+          <span className="muted">
+            Takes effect on their next message — the bot reads it fresh from this record every time.
+          </span>
         </div>
         <div className="row">
           <label style={{ width: 90 }}>Auto verified</label>

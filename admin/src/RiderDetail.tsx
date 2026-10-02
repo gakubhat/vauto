@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { getRider } from './api';
+import { getRider, patchRider } from './api';
 import { DeleteUserButton } from './DeleteUserButton';
 import { RecoverPanel } from './RecoverPanel';
 
@@ -21,16 +21,23 @@ export function RiderDetail() {
   const { id } = useParams();
   const [r, setR] = useState<RiderDetailData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [language, setLanguage] = useState('kannada');
   const navigate = useNavigate();
 
-  useEffect(() => {
+  async function load() {
     setLoadError(null);
-    void getRider(id as string)
-      .then((row) => setR(row as RiderDetailData))
-      .catch((e: Error) => {
-        setLoadError(e.message || 'Not found');
-        setR(null);
-      });
+    try {
+      const row = (await getRider(id as string)) as RiderDetailData;
+      setR(row);
+      setLanguage(row.preferred_language === 'english' ? 'english' : 'kannada');
+    } catch (e) {
+      setLoadError((e as Error).message || 'Not found');
+      setR(null);
+    }
+  }
+
+  useEffect(() => {
+    void load();
   }, [id]);
 
   if (loadError) {
@@ -48,6 +55,16 @@ export function RiderDetail() {
   }
 
   if (!r) return <p>Loading…</p>;
+
+  async function saveLanguage() {
+    try {
+      await patchRider(r!.id, { preferred_language: language });
+    } catch (e) {
+      alert((e as Error).message);
+      return;
+    }
+    void load();
+  }
 
   return (
     <>
@@ -94,6 +111,20 @@ export function RiderDetail() {
       </table>
 
       <RecoverPanel phone={r.phone} />
+
+      <div className="panel">
+        <h2>Language</h2>
+        <div className="row">
+          <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+            <option value="kannada">ಕನ್ನಡ</option>
+            <option value="english">English</option>
+          </select>
+          <button onClick={() => void saveLanguage()}>Save</button>
+          <span className="muted">
+            Takes effect on their next message — the bot reads it fresh from this record every time.
+          </span>
+        </div>
+      </div>
 
       <div className="panel">
         <h2>Danger zone</h2>

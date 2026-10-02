@@ -201,7 +201,11 @@ adminRouter.patch('/drivers/:id', authenticate, async (req: Request, res: Respon
   const allowed = [
     'name', 'vehicle_no', 'aadhaar_no', 'vehicle_verified',
     'base_lat', 'base_lng', 'base_text', 'radius_km',
+    'preferred_language',
   ];
+  if ('preferred_language' in b && b.preferred_language !== 'kannada' && b.preferred_language !== 'english') {
+    return res.status(400).json({ error: "preferred_language must be 'kannada' or 'english'" });
+  }
   const patch: Record<string, unknown> = {};
   for (const k of allowed) if (k in b) patch[k] = b[k];
   if (patch.vehicle_verified === true) patch.vehicle_verified_at = new Date().toISOString();
@@ -320,7 +324,10 @@ adminRouter.get('/riders/:id', authenticate, async (req: Request, res: Response)
 
 adminRouter.patch('/riders/:id', authenticate, async (req: Request, res: Response) => {
   const b = req.body as Record<string, unknown>;
-  const allowed = ['name', 'home_lat', 'home_lng', 'home_text'];
+  const allowed = ['name', 'home_lat', 'home_lng', 'home_text', 'preferred_language'];
+  if ('preferred_language' in b && b.preferred_language !== 'kannada' && b.preferred_language !== 'english') {
+    return res.status(400).json({ error: "preferred_language must be 'kannada' or 'english'" });
+  }
   const patch: Record<string, unknown> = {};
   for (const k of allowed) if (k in b) patch[k] = b[k];
   const { data, error } = await supabaseAdmin

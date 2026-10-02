@@ -53,6 +53,8 @@ export const overrideRole = (id: string, role: string) =>
 
 export const getRiders = (params = '') => request(admin(`/riders${params}`));
 export const getRider = (id: string) => request(admin(`/riders/${id}`));
+export const patchRider = (id: string, body: unknown) =>
+  request(admin(`/riders/${id}`), { method: 'PATCH', body: JSON.stringify(body) });
 
 export const getTrips = (params = '') => request(admin(`/trips${params}`));
 export const getTrip = (id: string) => request(admin(`/trips/${id}`));

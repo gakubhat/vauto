@@ -74,7 +74,7 @@ Build and run everything with `npm run build:all` (see `docs/local-setup.md`).
 
 | Section | Contents | Actions |
 |---|---|---|
-| Identity | Name, auto number, Aadhaar number, auto-verified flag | Edit all four; *Mark verified* stamps `vehicle_verified_at` |
+| Identity | Name, auto number, Aadhaar number, auto-verified flag, language | Edit any; *Mark verified* stamps `vehicle_verified_at` |
 | Coverage | Base location (map link + coords), radius | Edit base location, change radius |
 | KYC | Aadhaar front/back, selfie, submitted date | **Approve / Reject / Suspend** |
 | Subscription | `subscription_until`, trial end, payment history | **Set expiry date**, record offline payment (amount + cash/QR) |
@@ -83,6 +83,8 @@ Build and run everything with `npm run build:all` (see `docs/local-setup.md`).
 | Role | Current role | **Override role** (office-only corrective action) |
 
 **Seeding a driver** (the cold-start path) is a *Create driver* form here: phone, name, vehicle, base location, radius → inserted with `approval_status = 'approved'`. The driver never signs up and never has to agree to anything. Their first WhatsApp message simply resolves their role from the `drivers` table.
+
+**Language** is set per user on both detail pages (ಕನ್ನಡ / English). It is read fresh from the record on every message, so an override takes effect on that user's next message — no session reset needed. Use it when a user chose the wrong option at signup, or when the office knows their preference. A user can also change it themselves by sending "language".
 
 ### Trip Detail — the investigation surface
 
@@ -158,14 +160,14 @@ action for a wrong role, not a general reset.
 | GET | `/drivers` | List (`?approval=&subscription=&q=`) |
 | POST | `/drivers` | **Seed a driver** |
 | GET | `/drivers/:id` | Detail |
-| PATCH | `/drivers/:id` | Edit name, vehicle, base location, radius |
+| PATCH | `/drivers/:id` | Edit name, vehicle, base location, radius, `preferred_language` (`kannada`\|`english`) |
 | POST | `/drivers/:id/approval` | `{ action: approve \| reject \| suspend }` |
 | POST | `/drivers/:id/kyc` | `{ action: approve \| reject }` |
 | POST | `/drivers/:id/subscription` | `{ paid_amount_paise, paid_via, valid_until }` — records offline cash/QR |
 | POST | `/drivers/:id/role` | Office role override |
 | GET | `/riders` | List (`?q=`) |
 | GET | `/riders/:id` | Detail |
-| PATCH | `/riders/:id` | Edit name, home location |
+| PATCH | `/riders/:id` | Edit name, home location, `preferred_language` (`kannada`\|`english`) |
 | GET | `/trips` | List (`?status=&q=&page=`) |
 | GET | `/trips/:id` | Detail |
 | POST | `/trips/:id/status` | `{ status, reason }` |
