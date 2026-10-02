@@ -5,6 +5,7 @@ import { t, type Lang } from '../src/whatsapp/i18n';
 import * as tpl from '../src/whatsapp/templates';
 import { renderWhatsApp } from '../src/whatsapp/api';
 import { nominatimLabel, shortenAddress } from '../src/lib/geocode';
+import { formatRupees } from '../src/lib/money';
 
 /**
  * WhatsApp rejects the whole message when a label is too long, and silently
@@ -195,5 +196,27 @@ describe('brand name', () => {
     expect(t('welcome', 'kannada')).toContain('ವಿಆಟೋ');
     expect(t('post_complete', 'english')).toContain('VAuto');
     expect(t('post_complete', 'kannada')).toContain('ವಿಆಟೋ');
+  });
+});
+
+/**
+ * Every rupee amount a rider or driver sees comes from formatRupees - the quote
+ * list, the fare check, the quote confirmation, the renewal notice. Asserting
+ * the sign here means a stray "Rs" or a stray space cannot creep back in.
+ */
+describe('money formatting', () => {
+  it('uses the rupee sign, not "Rs"', () => {
+    expect(formatRupees(7000)).toBe('₹70');
+    expect(formatRupees(19900)).toBe('₹199');
+    expect(formatRupees(7000)).not.toContain('Rs');
+  });
+
+  it('rounds paise and never shows a decimal', () => {
+    expect(formatRupees(7050)).toBe('₹71');
+    expect(formatRupees(1)).toBe('₹0');
+  });
+
+  it('leaves room in WhatsApp 24-character list rows', () => {
+    expect(`Ramesh · ${formatRupees(7000)}`.length).toBeLessThanOrEqual(24);
   });
 });

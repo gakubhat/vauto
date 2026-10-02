@@ -10,9 +10,15 @@ export function paiseToRupees(paise: Paise): number {
   return paise / 100;
 }
 
+/**
+ * The rupee sign, not "Rs". Every user-facing amount goes through here - the
+ * quote list, the fare check, the driver's confirmation, the renewal notice -
+ * so one change covers all of them. No space, which also leaves more of
+ * WhatsApp's 24-character list-row limit for the driver's name.
+ */
 export function formatRupees(paise: Paise): string {
   const rupees = Math.round(paise / 100);
-  return `Rs ${rupees}`;
+  return `₹${rupees}`;
 }
 
 /** Parse a driver's typed quote. Returns null if it is not a sane amount. */

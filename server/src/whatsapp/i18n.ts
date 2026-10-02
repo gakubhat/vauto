@@ -220,8 +220,8 @@ const T: Record<string, Entry> = {
 
   // Driver trips
   lead: {
-    en: '*New trip*\n\n*From:* {from}\n_{near} away \n\n*To:* {to} (About {distance})\n\n*When:* {when}',
-    kn: '*ಹೊಸ ಪ್ರಯಾಣ*\n\n*ಎಲ್ಲಿಂದ?:* {from}\n_{near} ದೂರದಲ್ಲಿ \n\n*ಎಲ್ಲಿಗೆ?:* {to} (ಸುಮಾರು {distance})\n\n*ಯಾವಾಗ?* {when}',
+    en: '*New trip*\n\n*From:* {from}\n_{near} away \n*To:* {to} (About {distance})\n*When:* {when}\n\n',
+    kn: '*ಹೊಸ ಪ್ರಯಾಣ*\n\n*ಎಲ್ಲಿಂದ?:* {from}\n_{near} ದೂರದಲ್ಲಿ \n*ಎಲ್ಲಿಗೆ?:* {to} (ಸುಮಾರು {distance})\n*ಯಾವಾಗ?* {when}\n\n',
   },
   lead_distance: { en: '\n_{distance}_', kn: '\n_{distance}_' },
   lead_when_now: { en: 'Now', kn: 'ಈಗ' },
@@ -235,7 +235,7 @@ const T: Record<string, Entry> = {
     kn: 'ಡ್ರಾಪ್ ಲೊಕೇಶನ್ ಗೆ ದಾರಿ ತೋರಿಸಲು ಒತ್ತಿರಿ.',
   },
   quote_btn: { en: 'Quote', kn: 'ಬೆಲೆ ಹೇಳಿ' },
-  quote_hint: { en: 'Or just reply with your price, like 70.', kn: 'ಅಥವಾ ನಿಮ್ಮ ಬೆಲೆಯನ್ನೇ ಕಳುಹಿಸಿ, ಉದಾ 70.' },
+  quote_hint: { en: 'Click "Quote" or just reply with your price, like 70.', kn: '"ಬೆಲೆ ಹೇಳಿ" ಒತ್ತಿ ಅಥವಾ ನಿಮ್ಮ ಬೆಲೆಯನ್ನೇ ಕಳುಹಿಸಿ, ಉದಾ 70.' },
   quote_invalid: { en: 'Just send the amount in rupees, like 70.', kn: 'ರೂಪಾಯಿಯಲ್ಲಿ ಮೊತ್ತ ಕಳುಹಿಸಿ, ಉದಾ 70.' },
   quote_sent: { en: 'Your quote of {amount} was sent to the rider.', kn: 'ನಿಮ್ಮ {amount} ಬೆಲೆ ಪ್ರಯಾಣಿಕರಿಗೆ ಕಳುಹಿಸಲಾಗಿದೆ.' },
   already_quoted: {
@@ -348,7 +348,7 @@ const T: Record<string, Entry> = {
   // "reply with a number to quote", which is unactionable without a trip.
   driver_unknown: {
     en: 'Sorry, I did not understand that. Send "language" to switch language, your location to update where you wait, or "help" to call us.',
-    kn: 'ಕ್ಷಮಿಸಿ, ಅದು ಅರ್ಥವಾಗಲಿಲ್ಲ. ಭಾಷೆ ಬದಲಿಸಲು "ಭಾಷೆ" ಕಳುಹಿಸಿ, ಕಾಯುವ ಸ್ಥಳ ಬದಲಿಸಲು ನಿಮ್ಮ ಸ್ಥಳ ಕಳುಹಿಸಿ, ಅಥವಾ ನಮಗೆ ಕರೆ ಮಾಡಲು "ಸಹಾಯ" ಕಳುಹಿಸಿ.',
+    kn: 'ಕ್ಷಮಿಸಿ, ಅದು ಅರ್ಥವಾಗಲಿಲ್ಲ. ಭಾಷೆ ಬದಲಿಸಲು "ಭಾಷೆ" ಕಳುಹಿಸಿ, ಕಾಯುವ ಸ್ಥಳ ಬದಲಿಸಲು ನಿಮ್ಮ ಲೊಕೇಶನ್ ಕಳುಹಿಸಿ, ಅಥವಾ ನಮಗೆ ಕರೆ ಮಾಡಲು "ಸಹಾಯ" ಎಂದು ಕಳುಹಿಸಿ.',
   },
 };
 
