@@ -359,7 +359,7 @@ export function driverDroppedOut(lang: Lang, retryTripId: string | null): OutMes
   if (!retryTripId) return { kind: 'text', body: t('driver_dropped_out', lang) };
   return {
     kind: 'buttons',
-    body: t('driver_dropped_out', lang),
+    body: t('driver_dropped_out_retry', lang),
     buttons: [btn('try_again', `retry_${retryTripId}`, lang)],
   };
 }

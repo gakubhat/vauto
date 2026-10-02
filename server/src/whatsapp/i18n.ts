@@ -20,38 +20,37 @@ const T: Record<string, Entry> = {
   skip: { en: 'Skip', kn: 'ಬಿಡಿ' },
   yes: { en: 'Yes', kn: 'ಹೌದು' },
   no: { en: 'No', kn: 'ಇಲ್ಲ' },
-  cancel: { en: 'Cancel', kn: 'ರದ್ದು' },
-  send_location: { en: 'Send location', kn: 'ಸ್ಥಳ ಕಳುಹಿಸಿ' },
+  cancel: { en: 'Cancel', kn: 'ರದ್ದುಗೊಳಿಸಿ' },
+  send_location: { en: 'Send location', kn: 'ಲೊಕೇಶನ್ ಕಳುಹಿಸಿ' },
   // Pickup and a driver's base must be a real location: matching runs on
   // coordinates. No "or type it" here - that is what left riders and drivers
   // invisible to each other.
   location_hint_select: {
     en: 'Tap the button below and select your location.',
-    kn: 'ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ ನಿಮ್ಮ ಸ್ಥಳ ಆಯ್ಕೆ ಮಾಡಿ.',
+    kn: 'ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ ನಿಮ್ಮ ಲೊಕೇಶನ್ ಆಯ್ಕೆ ಮಾಡಿ.',
   },
   need_location: {
     en: 'Please tap the button below and select your location.',
-    kn: 'ದಯವಿಟ್ಟು ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ ನಿಮ್ಮ ಸ್ಥಳ ಆಯ್ಕೆ ಮಾಡಿ.',
+    kn: 'ದಯವಿಟ್ಟು ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ ನಿಮ್ಮ ಲೊಕೇಶನ್ ಆಯ್ಕೆ ಮಾಡಿ.',
   },
   need_base_location: {
     en: 'Please tap the button below and select where you wait.',
-    kn: 'ದಯವಿಟ್ಟು ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ ನೀವು ಕಾಯುವ ಸ್ಥಳ ಆಯ್ಕೆ ಮಾಡಿ.',
+    kn: 'ದಯವಿಟ್ಟು ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ ನೀವು ಕಾಯುವ ಲೊಕೇಶನ್ ಆಯ್ಕೆ ಮಾಡಿ.',
   },
   // Drop may be typed: drivers read the description and quote from local
   // knowledge, and an approximate destination is better than none.
   location_hint_type: {
     en: 'Tap the button below, or just type the area name.',
-    kn: 'ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ, ಅಥವಾ ಊರಿನ ಹೆಸರು ಬರೆಯಿರಿ.',
+    kn: 'ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ, ಅಥವಾ ಸ್ಥಳದ ಹೆಸರು ಬರೆಯಿರಿ.',
   },
   language_menu: { en: 'Choose your language', kn: 'ನಿಮ್ಮ ಭಾಷೆ ಆಯ್ಕೆ ಮಾಡಿ' },
   language_set: { en: 'Language set.', kn: 'ಭಾಷೆ ಆಯ್ಕೆಯಾಗಿದೆ.' },
 
   // Rider signup
   ask_name: { en: "What's your name?", kn: 'ನಿಮ್ಮ ಹೆಸರು ಏನು?' },
-  home_saved: { en: 'Home saved.', kn: 'ಮನೆಯ ವಿಳಾಸ ಉಳಿಸಲಾಗಿದೆ.' },
   rider_ready: {
-    en: 'You are all set! Tap Book to order an auto, or just say hi anytime.',
-    kn: 'ಎಲ್ಲ ಸಿದ್ಧ! ಆಟೋ ಬುಕ್ ಮಾಡಲು ಬುಕ್ ಒತ್ತಿ, ಅಥವಾ ಯಾವಾಗ ಬೇಕಾದರೂ ಹಾಯ್ ಹೇಳಿ.',
+    en: 'You are all set! Tap "Book" to book an auto, or just say hi anytime.',
+    kn: 'ಎಲ್ಲ ಸಿದ್ಧವಾಗಿದೆ! ಆಟೋ ಬುಕ್ ಮಾಡಲು "ಬುಕ್" ಒತ್ತಿ, ಅಥವಾ ಯಾವಾಗ ಬೇಕಾದರೂ ಹಾಯ್/hi ಹೇಳಿ.',
   },
   book_auto: { en: 'Book an auto', kn: 'ಆಟೋ ಬುಕ್ ಮಾಡಿ' },
 
@@ -62,15 +61,15 @@ const T: Record<string, Entry> = {
   },
   ask_drop: {
     en: 'Where are you going?',
-    kn: 'ನೀವು ಎಲ್ಲಿಗೆ ಹೋಗುತ್ತೀರಿ?',
+    kn: 'ನೀವು ಎಲ್ಲಿಗೆ ಹೋಗುತ್ತೀದ್ದೀರಾ?',
   },
   confirm_card: {
     en: '*From*\n{pickup}\n\n*To*\n{drop}{distance}',
     kn: '*ಇಂದ*\n{pickup}\n\n*ಗೆ*\n{drop}{distance}',
   },
   confirm_distance: { en: '\n\n_About {distance}_', kn: '\n\n_ಸುಮಾರು {distance}_' },
-  book_now: { en: 'Book now', kn: 'ಈಗ ಬುಕ್ ಮಾಡಿ' },
-  schedule: { en: 'Schedule', kn: 'ಮುಂಚಿತವಾಗಿ' },
+  book_now: { en: 'Book now', kn: 'ಈಗಲೇ ಬುಕ್ ಮಾಡಿ' },
+  schedule: { en: 'Schedule', kn: 'ಮುಂಚಿತವಾಗಿ ಬುಕ್ ಮಾಡಿ' },
   change_pickup: { en: 'Change pickup', kn: 'ಪಿಕಪ್ ಬದಲಿಸಿ' },
   change_drop: { en: 'Change drop', kn: 'ಗಮ್ಯ ಬದಲಿಸಿ' },
   schedule_day: { en: 'Which day?', kn: 'ಯಾವ ದಿನ?' },
@@ -172,8 +171,6 @@ const T: Record<string, Entry> = {
     en: 'Send "auto" to book, "status" to see your trip, "language" to switch, or "help" to call us.',
     kn: '"ಆಟೋ" ಬುಕ್ ಮಾಡಲು, "ಸ್ಥಿತಿ" ಪ್ರಯಾಣ ನೋಡಲು, "ಭಾಷೆ" ಬದಲಿಸಲು, "ಸಹಾಯ" ನಮಗೆ ಕರೆ ಮಾಡಲು ಕಳುಹಿಸಿ.',
   },
-  /** Appended wherever a user is stuck, so "contact the office" means something. */
-  call_office: { en: 'Call us: {phone}', kn: 'ನಮಗೆ ಕರೆ ಮಾಡಿ: {phone}' },
   help_reply: {
     en: 'Need help? Call us: {phone}. We are happy to help.',
     kn: 'ಸಹಾಯ ಬೇಕೇ? ನಮಗೆ ಕರೆ ಮಾಡಿ: {phone}. ನಾವು ಸಹಾಯ ಮಾಡುತ್ತೇವೆ.',
@@ -312,10 +309,6 @@ const T: Record<string, Entry> = {
   reason_vehicle_problem: { en: 'Vehicle problem', kn: 'ವಾಹನ ಸಮಸ್ಯೆ' },
   reason_not_available: { en: 'Not available now', kn: 'ಈಗ ಲಭ್ಯವಿಲ್ಲ' },
 
-  cancel_other_hint: {
-    en: 'We are finding another auto for you.',
-    kn: 'ನಿಮಗೆ ಇನ್ನೊಂದು ಆಟೋ ಹುಡುಕುತ್ತಿದ್ದೇವೆ.',
-  },
   rider_cancelled: {
     en: 'The rider cancelled this trip.',
     kn: 'ಪ್ರಯಾಣಿಕರು ಈ ಪ್ರಯಾಣ ರದ್ದು ಮಾಡಿದ್ದಾರೆ.',
