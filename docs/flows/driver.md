@@ -170,10 +170,21 @@ Two ways to answer, both valid:
 | 10 | `base_yes` / `base_no` | Only valid in `awaiting_base_confirm` |
 | 11 | `radius_{n}` | → set radius |
 | 12 | "radius" / "ವ್ಯಾಪ್ತಿ" | → `awaiting_radius_change` |
-| 13 | "language" / "ಭಾಷೆ" / "kannada" / "english" | Language |
+| 13 | "language" / "ಭಾಷೆ" (case-insensitive) | → `awaiting_language` (menu). The rider flow additionally accepts "kannada"/"english" typed directly; the driver does not — a driver typing "kannada" falls through to #15, which tells him to send "language" |
 | — | "help" / "ಸಹಾಯ" | **Checked before every state branch**, including the approval gate. Queues a help request and replies with the helpline |
 | 14 | "hi" / "hello" / "hey" / "namaskara" / "ನಮಸ್ಕಾರ" / "ಹಾಯ್" | Greeting. Replies with work status: with open trips, *"you have {n} open — reply with your price"*; with none, *"you are all set, we will message you when a trip comes up"* |
-| 15 | Anything else | Help: *"Reply with a number to quote. Send your location to update where you wait."* |
+| 15 | Anything else, and a trip **is** open | Help: *"Reply with a number to quote. Send your location to update where you wait."* |
+| 16 | Anything else, and **no** trip is open | *"Sorry, I did not understand that."* plus what he can actually do: send "language", send his location, or "help" |
+
+**Why #15 and #16 are different.** `driver_help` opens with "Reply with a
+number to quote". That is only actionable when a trip is actually open to him.
+A driver who had just quoted and then sent something unrecognised — "language"
+typed as "Language", or a word the bot does not know — was being told to quote
+when there was nothing left to quote on. The catch-all now checks first.
+
+**Why "language" is compared case-insensitively (#13).** The rider flow
+lowercases its input; the driver flow did not, so "Language" or "LANGUAGE" from
+a driver fell straight through to the catch-all. Both now match the same way.
 
 **Why greetings are their own branch (#14) and not part of the fall-through.**
 They were previously #14 with everything else, so a driver who had just been

@@ -491,21 +491,28 @@ export async function handleDriverMessage(phone: string, input: DriverInput): Pr
     }
   }
 
-  if (text === 'language' || text === 'ಭಾಷೆ') {
+  // Case-insensitive, matching the rider flow: a driver who typed "Language"
+  // or "LANGUAGE" was falling through to the catch-all below.
+  const lower = text.toLowerCase();
+  if (lower === 'language' || text === 'ಭಾಷೆ') {
     await upsertSession(phone, { state: 'awaiting_language' });
     return sendD(phone, tpl.languageMenu(lang), 'awaiting_language');
   }
 
+  const open = await openDispatchedTrips(driver.id);
+
   // A greeting is not an unknown command. Falling through to `driverHelp` here
   // told a driver with no open trips to "reply with a number to quote", which
   // he cannot act on.
-  const greet = text.trim().toLowerCase();
-  if (['hi', 'hello', 'hey', 'namaskara', 'ನಮಸ್ಕಾರ', 'ಹಾಯ್'].includes(greet)) {
-    const open = await openDispatchedTrips(driver.id);
+  if (['hi', 'hello', 'hey', 'namaskara', 'ನಮಸ್ಕಾರ', 'ಹಾಯ್'].includes(lower)) {
     return sendD(phone, tpl.driverHail(lang, open.length), 'idle');
   }
 
-  return sendD(phone, tpl.driverHelp(lang), 'idle');
+  // Unknown command. "Reply with a number to quote" is only something he can
+  // do when a trip is open to him; with none it is noise, so say what he can
+  // do instead.
+  if (open.length > 0) return sendD(phone, tpl.driverHelp(lang), 'idle');
+  return sendD(phone, tpl.text(t('driver_unknown', lang)), 'idle');
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────

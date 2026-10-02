@@ -344,6 +344,12 @@ const T: Record<string, Entry> = {
     en: 'Namaskara! You have {n} trip(s) open right now - reply with your price, like 70.',
     kn: 'ನಮಸ್ಕಾರ! ಈಗ {n} ಪ್ರಯಾಣ ಕಾಯುತ್ತಿದೆ - ನಿಮ್ಮ ಬೆಲೆ ಕಳುಹಿಸಿ, ಉದಾ 70.',
   },
+  // Catch-all when no trip is open to the driver. driver_help leads with
+  // "reply with a number to quote", which is unactionable without a trip.
+  driver_unknown: {
+    en: 'Sorry, I did not understand that. Send "language" to switch language, your location to update where you wait, or "help" to call us.',
+    kn: 'ಕ್ಷಮಿಸಿ, ಅದು ಅರ್ಥವಾಗಲಿಲ್ಲ. ಭಾಷೆ ಬದಲಿಸಲು "ಭಾಷೆ" ಕಳುಹಿಸಿ, ಕಾಯುವ ಸ್ಥಳ ಬದಲಿಸಲು ನಿಮ್ಮ ಸ್ಥಳ ಕಳುಹಿಸಿ, ಅಥವಾ ನಮಗೆ ಕರೆ ಮಾಡಲು "ಸಹಾಯ" ಕಳುಹಿಸಿ.',
+  },
 };
 
 export function t(key: string, lang: Lang, vars: Record<string, string | number> = {}): string {

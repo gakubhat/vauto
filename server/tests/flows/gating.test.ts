@@ -202,4 +202,35 @@ describe('idle priority', () => {
 
     expect(body).toContain('1 trip');
   }, 60000);
+
+  /** The driver flow compared raw text, so "Language" fell through to the catch-all. */
+  it('accepts "language" in any case', async () => {
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+
+    await driverStep(DRIVER_A_PHONE, { text: 'Language' });
+
+    const sent = messageLog.filter((m) => m.to === DRIVER_A_PHONE);
+    const ids = (sent[sent.length - 1].msg as { buttons?: Array<{ id: string }> }).buttons?.map(
+      (b) => b.id,
+    );
+    expect(ids).toEqual(expect.arrayContaining(['lang_kannada', 'lang_english']));
+  }, 60000);
+
+  /**
+   * With no trip open, "Reply with a number to quote" is noise. A driver who
+   * had just quoted and then sent something unrecognised got exactly that.
+   */
+  it('tells a driver with no open trips what he can do, not to quote', async () => {
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+
+    await driverStep(DRIVER_A_PHONE, { text: 'langauge' });
+
+    const body = messageLog
+      .filter((m) => m.to === DRIVER_A_PHONE)
+      .map((m) => (m.msg as { body: string }).body)
+      .join('\n');
+
+    expect(body).not.toContain('Reply with a number to quote');
+    expect(body).toContain('did not understand');
+  }, 60000);
 });
