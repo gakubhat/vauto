@@ -20,9 +20,11 @@ The same image runs on a plain VPS with Docker Compose — see [VPS fallback](#v
 
 ## 1. Supabase
 
-1. Create a project in **`ap-south-1` (Mumbai)** so the app's many small
-   queries are not crossing an ocean. Copy the project URL and the
-   **service role key** (Project Settings → API).
+1. Create a project in the **same region as the app** (see §3) so the many
+   small queries are not crossing an ocean. On Fly's free plan the app runs in
+   `sin` (Singapore), so use Supabase's `ap-southeast-1`; Mumbai (`ap-south-1`)
+   pairs with Fly's `bom`, which needs a paid Fly org. Copy the project URL and
+   the **service role key** (Project Settings → API).
 2. Apply the schema. `server/supabase/schema.sql` is a single drop-and-recreate
    file — the source of truth. Run it in the SQL editor, or:
 
@@ -80,6 +82,11 @@ curl https://<your-app>.fly.dev/health
 purpose — do not change those; the scheduler and webhook need the machine up.
 `NODE_ENV=production` is already set, which also means the destructive test
 database switch stays off.
+
+**Region:** `primary_region` is set to `sin` (Singapore). `bom` (Mumbai) is the
+closest to Karnataka but **cannot host a machine on Fly's free/legacy plan** —
+run `fly platform regions` to see what your org allows. Whichever region you
+pick, put the Supabase project in the matching one (§1).
 
 Optional secrets (only if you use them): `GEOCODER` (`nominatim` by default, or
 `google` + `GOOGLE_MAPS_API_KEY`), `WHATSAPP_API_VERSION`, `DEFAULT_RADIUS_KM`,

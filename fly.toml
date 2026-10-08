@@ -9,7 +9,7 @@
 # the server are built by Fly.
 
 app = "vauto"
-primary_region = "bom" # Mumbai - keep the app close to the Supabase project
+primary_region = "sin" # Singapore - closest region available on the free plan (bom needs a paid org)
 
 [build]
 
