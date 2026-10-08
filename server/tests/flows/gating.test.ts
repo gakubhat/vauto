@@ -174,7 +174,7 @@ describe('idle priority', () => {
    * after being approved.
    */
   it('greets an idle driver with no trips without asking him to quote', async () => {
-    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5, language: 'english' });
 
     await driverStep(DRIVER_A_PHONE, { text: 'Hi' });
 
@@ -189,7 +189,7 @@ describe('idle priority', () => {
 
   it('greets a driver who has work by telling him how many trips are open', async () => {
     await seedRider();
-    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5, language: 'english' });
     await postTrip();
 
     messageLog.length = 0;
@@ -217,20 +217,32 @@ describe('idle priority', () => {
   }, 60000);
 
   /**
-   * With no trip open, "Reply with a number to quote" is noise. A driver who
-   * had just quoted and then sent something unrecognised got exactly that.
+   * The catch-all used to tell a driver with no trips to "reply with a number
+   * to quote", which is unactionable. It now shows the menu.
    */
   it('tells a driver with no open trips what he can do, not to quote', async () => {
-    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5, language: 'english' });
 
     await driverStep(DRIVER_A_PHONE, { text: 'langauge' });
 
-    const body = messageLog
-      .filter((m) => m.to === DRIVER_A_PHONE)
-      .map((m) => (m.msg as { body: string }).body)
-      .join('\n');
+    const sent = messageLog.filter((m) => m.to === DRIVER_A_PHONE);
+    const last = sent[sent.length - 1].msg as { body: string; buttons?: Array<{ id: string }> };
+    expect(last.body).not.toContain('Reply with a number to quote');
+    expect(last.buttons?.map((b) => b.id)).toEqual(expect.arrayContaining(['help', 'language']));
+  }, 60000);
 
-    expect(body).not.toContain('Reply with a number to quote');
-    expect(body).toContain('did not understand');
+  it('offers See trips when a driver has work, and it prompts for a price', async () => {
+    await seedRider();
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5, language: 'english' });
+    await postTrip();
+    messageLog.length = 0;
+
+    await driverStep(DRIVER_A_PHONE, { text: 'hi' });
+    const sent = messageLog.filter((m) => m.to === DRIVER_A_PHONE);
+    const menu = sent[sent.length - 1].msg as { buttons?: Array<{ id: string }> };
+    expect(menu.buttons?.map((b) => b.id)).toEqual(expect.arrayContaining(['see_trips', 'help', 'language']));
+
+    await driverStep(DRIVER_A_PHONE, { text: 'see_trips' });
+    expect((await stateOf(DRIVER_A_PHONE))?.state).toBe('awaiting_quote_amount');
   }, 60000);
 });

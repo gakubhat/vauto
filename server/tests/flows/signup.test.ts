@@ -42,9 +42,9 @@ describe('signup', () => {
     const last = messageLog.filter((m) => m.to === NEW_RIDER).slice(-1)[0];
     expect(last.msg.kind).toBe('buttons');
     // A brand-new rider defaults to Kannada before choosing a language.
-    expect((last.msg as { body: string }).body).toContain('ಹಾಯ್');
+    expect((last.msg as { body: string }).body).toContain('ಆಟೋ');
     const ids = (last.msg as { buttons: Array<{ id: string }> }).buttons.map((b) => b.id);
-    expect(ids).toContain('book_auto');
+    expect(ids).toEqual(expect.arrayContaining(['book_auto', 'help', 'language']));
 
     const { data } = await supabaseAdmin.from('riders').select('*').eq('phone', NEW_RIDER).single();
     expect((data as { name: string } | null)?.name).toBe('Sita');
@@ -59,18 +59,75 @@ describe('signup', () => {
     expect((await stateOf(NEW_RIDER))?.state).toBe('awaiting_pickup_location');
   }, 60000);
 
-  it('rejects text where a pickup location is expected', async () => {
+  it('shows the menu on hi instead of starting a booking', async () => {
+    await startAsNewRider(NEW_RIDER);
+    const { handleRiderMessage } = await import('../../src/state/flows/rider');
+    await handleRiderMessage(NEW_RIDER, { text: 'Sita' });
+    messageLog.length = 0;
+
+    await handleRiderMessage(NEW_RIDER, { text: 'hi' });
+
+    expect((await stateOf(NEW_RIDER))?.state).toBe('idle');
+    const last = messageLog.filter((m) => m.to === NEW_RIDER).slice(-1)[0];
+    expect(last.msg.kind).toBe('buttons');
+    const ids = (last.msg as { buttons: Array<{ id: string }> }).buttons.map((b) => b.id);
+    expect(ids).toEqual(expect.arrayContaining(['book_auto', 'help', 'language']));
+  }, 60000);
+
+  it('rejects text where a pickup location is expected, and explains why', async () => {
     await startAsNewRider(NEW_RIDER);
     const { handleRiderMessage } = await import('../../src/state/flows/rider');
     await handleRiderMessage(NEW_RIDER, { text: 'Sita' });
     await handleRiderMessage(NEW_RIDER, { text: 'book_auto' });
 
+    const locReq = (): string => {
+      const m = [...messageLog]
+        .reverse()
+        .find((x) => x.to === NEW_RIDER && x.msg.kind === 'location_request');
+      return (m?.msg as { body: string } | undefined)?.body ?? '';
+    };
+    const first = locReq();
+
     await handleRiderMessage(NEW_RIDER, { text: 'bus stand' });
 
     // Matching runs on coordinates, so a typed pickup must never advance.
     expect((await stateOf(NEW_RIDER))?.state).toBe('awaiting_pickup_location');
-    const last = messageLog.filter((m) => m.to === NEW_RIDER).slice(-1)[0];
-    expect(last.msg.kind).toBe('location_request');
+    // The re-prompt is deliberately different from the first, so it does not
+    // read as "the bot did not hear me".
+    expect(locReq()).not.toBe(first);
+    expect(locReq().length).toBeGreaterThan(0);
+
+    // And offers a way out.
+    const sent = messageLog.filter((m) => m.to === NEW_RIDER);
+    const last = sent[sent.length - 1].msg as { buttons?: Array<{ id: string }> };
+    expect(last.buttons?.map((b) => b.id)).toEqual(expect.arrayContaining(['cancel_booking']));
+
+    await handleRiderMessage(NEW_RIDER, { text: 'cancel_booking' });
+    expect((await stateOf(NEW_RIDER))?.state).toBe('idle');
+  }, 60000);
+
+  it('offers a typed-destination option at the drop step', async () => {
+    await startAsNewRider(NEW_RIDER);
+    const { handleRiderMessage } = await import('../../src/state/flows/rider');
+    await handleRiderMessage(NEW_RIDER, { text: 'Sita' });
+    await handleRiderMessage(NEW_RIDER, { text: 'book_auto' });
+    await handleRiderMessage(NEW_RIDER, { location: PICKUP });
+
+    // Two bubbles: the map picker, then type-it / cancel options.
+    const sent = messageLog.filter((m) => m.to === NEW_RIDER);
+    const opts = sent[sent.length - 1].msg as { buttons?: Array<{ id: string }> };
+    expect(opts.buttons?.map((b) => b.id)).toEqual(
+      expect.arrayContaining(['type_drop', 'cancel_booking']),
+    );
+
+    await handleRiderMessage(NEW_RIDER, { text: 'type_drop' });
+    expect((await stateOf(NEW_RIDER))?.state).toBe('awaiting_drop_location');
+    const typed = messageLog.filter((m) => m.to === NEW_RIDER).slice(-1)[0].msg;
+    expect(typed.kind).toBe('text');
+
+    // Typing the area then advances, as before.
+    await handleRiderMessage(NEW_RIDER, { text: 'bus stand' });
+    expect((await stateOf(NEW_RIDER))?.state).toBe('awaiting_trip_confirm');
   }, 60000);
 
   it('walks a driver through signup and KYC, ending pending approval', async () => {

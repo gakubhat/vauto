@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { createDriver, getDrivers } from './api';
+import { Notice, useApi } from './ui';
 
 interface Driver {
   id: string;
@@ -14,26 +15,44 @@ interface Driver {
 }
 
 export function Drivers() {
-  const [rows, setRows] = useState<Driver[]>([]);
-  const [q, setQ] = useState('');
+  const [params, setParams] = useSearchParams();
+  const approval = params.get('approval') ?? '';
+  const subscription = params.get('subscription') ?? '';
+  const q = params.get('q') ?? '';
+  const [qInput, setQInput] = useState(q);
   const [showSeed, setShowSeed] = useState(false);
   const [form, setForm] = useState({ phone: '', name: '', vehicle_no: '', radius_km: 3 });
 
-  async function load() {
-    const params = q ? `?q=${encodeURIComponent(q)}` : '';
-    setRows((await getDrivers(params)) as Driver[]);
-  }
+  useEffect(() => setQInput(q), [q]);
 
-  useEffect(() => {
-    void load();
-  }, []);
+  const search = new URLSearchParams();
+  if (approval) search.set('approval', approval);
+  if (subscription) search.set('subscription', subscription);
+  if (q) search.set('q', q);
+
+  const { data: rows, error, loading, reload } = useApi<Driver[]>(
+    () => getDrivers(`?${search.toString()}`) as Promise<Driver[]>,
+    [approval, subscription, q],
+  );
+
+  function setParam(key: string, value: string) {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setParams(next);
+  }
 
   async function seed(e: React.FormEvent) {
     e.preventDefault();
-    await createDriver({ ...form, approval_status: 'approved' });
+    try {
+      await createDriver({ ...form, approval_status: 'approved' });
+    } catch (err) {
+      alert((err as Error).message);
+      return;
+    }
     setForm({ phone: '', name: '', vehicle_no: '', radius_km: 3 });
     setShowSeed(false);
-    void load();
+    void reload();
   }
 
   function badge(d: Driver) {
@@ -46,8 +65,26 @@ export function Drivers() {
     <>
       <h1>Drivers</h1>
       <div className="row">
-        <input placeholder="Search name, phone, vehicle" value={q} onChange={(e) => setQ(e.target.value)} />
-        <button onClick={() => void load()}>Search</button>
+        <input
+          placeholder="Search name, phone, vehicle"
+          value={qInput}
+          onChange={(e) => setQInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') setParam('q', qInput.trim());
+          }}
+        />
+        <button onClick={() => setParam('q', qInput.trim())}>Search</button>
+        <select value={approval} onChange={(e) => setParam('approval', e.target.value)}>
+          <option value="">all approvals</option>
+          <option value="pending">pending KYC</option>
+          <option value="approved">approved</option>
+          <option value="suspended">suspended</option>
+        </select>
+        <select value={subscription} onChange={(e) => setParam('subscription', e.target.value)}>
+          <option value="">all subscriptions</option>
+          <option value="active">active</option>
+          <option value="lapsed">lapsed</option>
+        </select>
         <button className="primary" onClick={() => setShowSeed((s) => !s)}>
           Seed a driver
         </button>
@@ -90,32 +127,43 @@ export function Drivers() {
         </form>
       )}
 
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Phone</th>
-            <th>Vehicle</th>
-            <th>Radius</th>
-            <th>Status</th>
-            <th>Rating</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((d) => (
-            <tr key={d.id}>
-              <td>
-                <Link to={`/drivers/${d.id}`}>{d.name ?? '—'}</Link>
-              </td>
-              <td>{d.phone}</td>
-              <td>{d.vehicle_no ?? '—'}</td>
-              <td>{d.radius_km} km</td>
-              <td>{badge(d)}</td>
-              <td>{d.rating_avg.toFixed(1)}</td>
+      <Notice error={error} loading={loading} onRetry={reload} />
+
+      {rows && (
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Phone</th>
+              <th>Vehicle</th>
+              <th>Radius</th>
+              <th>Status</th>
+              <th>Rating</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((d) => (
+              <tr key={d.id}>
+                <td>
+                  <Link to={`/drivers/${d.id}`}>{d.name ?? '—'}</Link>
+                </td>
+                <td>{d.phone}</td>
+                <td>{d.vehicle_no ?? '—'}</td>
+                <td>{d.radius_km} km</td>
+                <td>{badge(d)}</td>
+                <td>{d.rating_avg.toFixed(1)}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={6} className="muted">
+                  No drivers match these filters.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      )}
     </>
   );
 }

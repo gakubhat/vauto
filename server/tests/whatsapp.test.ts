@@ -4,6 +4,7 @@ import path from 'node:path';
 import { t, type Lang } from '../src/whatsapp/i18n';
 import * as tpl from '../src/whatsapp/templates';
 import { renderWhatsApp } from '../src/whatsapp/api';
+import { nextSlots } from '../src/lib/schedule';
 import { nominatimLabel, shortenAddress } from '../src/lib/geocode';
 import { formatRupees } from '../src/lib/money';
 
@@ -24,6 +25,9 @@ const templatesSrc = fs.readFileSync(
 const LANGS: Lang[] = ['english', 'kannada'];
 const TRIP = '11111111-1111-1111-1111-111111111111';
 const HELPLINE = '+91 94482 67561';
+// 3 Oct 2026, 2:30 PM IST - fixed so slot labels are deterministic.
+const NOW = new Date('2026-10-03T09:00:00.000Z');
+const YMD = { y: 2026, mo: 9, d: 3 };
 
 /** WhatsApp's hard caps: reply button 20, list row 24, list section title 24. */
 const LIMITS = { button: 20, row: 24, section: 24 };
@@ -38,10 +42,16 @@ function allMessages(): Array<[string, any]> {
     out.push(
       ['roleSelection', tpl.roleSelection(lang)],
       ['riderReady', tpl.riderReady(lang)],
-      ['tripConfirm', tpl.tripConfirm(lang, 'A', 'B', 2)],
-      ['scheduleDay', tpl.scheduleDay(lang)],
+      ['riderMenu', tpl.riderMenu(lang)],
+      ['dropOptions', tpl.dropOptions(lang)],
+      ['askDropTyped', tpl.askDropTyped(lang)],
+      ['pickupOptions', tpl.pickupOptions(lang)],
+      ['tripConfirm', tpl.tripConfirm(lang, 'A', 'B', 2, true)],
+      ['scheduleSlot', tpl.scheduleSlot(lang, nextSlots(NOW), NOW)],
       ['findingAuto', tpl.findingAuto(lang, TRIP, 3)],
       ['noQuotes', tpl.noQuotes(lang, TRIP)],
+      ['pickTimeout', tpl.pickTimeout(lang, TRIP)],
+      ['driverTaken', tpl.driverTaken(lang)],
       ['noCover', tpl.noCover(lang, TRIP)],
       ['assignedRider', tpl.assignedRider(lang, 'N', 'V', 'P', '1234', TRIP)],
       ['completionConfirm', tpl.completionConfirm(lang, 'N')],
@@ -56,13 +66,18 @@ function allMessages(): Array<[string, any]> {
       ['kycPrompt', tpl.kycPrompt(lang, 'front')],
       ['leadMessage', tpl.leadMessage(lang, TRIP, 'F', 'N', 'T', '2 km', 'Now')],
       ['youGotTrip', tpl.youGotTrip(lang, 7000, 'R', 'P', 'PU', TRIP)],
+      ['otherQuotesWithdrawn', tpl.otherQuotesWithdrawn(lang)],
       ['askStart', tpl.askStart(lang, TRIP)],
       ['askArrived', tpl.askArrived(lang, TRIP)],
       ['otpOk', tpl.otpOk(lang)],
       ['askDone', tpl.askDone(lang)],
+      ['driverMenu-open', tpl.driverMenu(lang, 2)],
+      ['driverMenu-none', tpl.driverMenu(lang, 0)],
       ['updateBase', tpl.updateBase(lang)],
       ['rateRider', tpl.rateRider(lang, 'R')],
-      ['scheduleHour', tpl.scheduleHour(lang, [9, 10])],
+      ['scheduleHour', tpl.scheduleHour(lang, YMD, [15, 16, 17], NOW)],
+      ['overnightNote', tpl.overnightNote(lang)],
+      ['scheduleAtRisk', tpl.scheduleAtRisk(lang, '5:00 AM', HELPLINE)],
       ['cancelReasonList-rider', tpl.cancelReasonList(lang, 'rider')],
       ['cancelReasonList-driver', tpl.cancelReasonList(lang, 'driver')],
       [
@@ -94,6 +109,20 @@ describe('whatsapp message labels', () => {
       expect(p.interactive.action.buttons[0].reply.title).not.toBe('trip_done');
       expect(p.interactive.action.buttons[0].reply.title.length).toBeGreaterThan(0);
     }
+  });
+
+  it('hides the Schedule button unless scheduling is enabled', () => {
+    const off = payload(tpl.tripConfirm('english', 'A', 'B', 2));
+    expect(off.interactive.action.buttons.map((b: { reply: { id: string } }) => b.reply.id)).toEqual([
+      'book_now',
+      'cancel_booking',
+    ]);
+    const on = payload(tpl.tripConfirm('english', 'A', 'B', 2, true));
+    expect(on.interactive.action.buttons.map((b: { reply: { id: string } }) => b.reply.id)).toEqual([
+      'book_now',
+      'schedule',
+      'cancel_booking',
+    ]);
   });
 
   it('cancel reason list section title fits the 24-char cap', () => {
@@ -136,6 +165,23 @@ describe('whatsapp message labels', () => {
           if (r.title.length > LIMITS.row) over.push(`${name} row "${r.title}"`);
         }
       }
+    }
+    expect(over).toEqual([]);
+  });
+
+  it("no list message exceeds WhatsApp's 10-row cap", () => {
+    // Meta rejects the WHOLE list message over 10 rows (across all sections),
+    // so the user receives nothing. Keep this guard: the 06:00-22:00 hour
+    // picker shipped with 17 rows and was silently dropped.
+    const over: string[] = [];
+    for (const [name, msg] of allMessages()) {
+      const p = payload(msg);
+      if (p.interactive?.type !== 'list') continue;
+      const rows = (p.interactive.action.sections ?? []).reduce(
+        (n: number, s: { rows?: unknown[] }) => n + (s.rows?.length ?? 0),
+        0,
+      );
+      if (rows > 10) over.push(`${name} has ${rows} rows`);
     }
     expect(over).toEqual([]);
   });

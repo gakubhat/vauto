@@ -15,6 +15,7 @@ interface RecoverData {
   driver: { id: string; name: string | null; approval_status: string } | null;
   help_open: Array<{ id: string; source: string; opened_at: string }>;
   blocking_trip: { id: string; trip_number: number; status: string; created_at: string } | null;
+  role_override: 'rider' | 'driver' | null;
   problems: string[];
   session_age_seconds: number | null;
 }
@@ -92,8 +93,26 @@ export function RecoverPanel({ phone }: { phone: string }) {
           </tr>
           <tr>
             <td>Role</td>
-            <td>{d.session?.role ?? '—'}</td>
+            <td>
+              {d.session?.role ?? '—'}
+              {d.role_override && (
+                <>
+                  {' '}
+                  <span className="badge warn">pinned to {d.role_override}</span>
+                </>
+              )}
+            </td>
           </tr>
+          {d.role_override && (
+            <tr>
+              <td>Override</td>
+              <td className="muted">
+                This phone is forced onto the {d.role_override} flow. Clear it from the{' '}
+                {d.role_override === 'driver' ? 'driver' : 'rider'} detail page if that was a
+                mistake.
+              </td>
+            </tr>
+          )}
           {d.blocking_trip && (
             <tr>
               <td>Live trip</td>

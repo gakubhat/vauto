@@ -10,8 +10,8 @@
       "awaiting_pickup_location": "Booking step 1 - pickup",
       "awaiting_drop_location": "Booking step 2 - destination",
       "awaiting_trip_confirm": "Confirm card - book now or schedule",
-      "awaiting_schedule_day": "Schedule - which day",
-      "awaiting_schedule_hour": "Schedule - which hour",
+      "awaiting_schedule_slot": "Schedule - which slot (rolling 3-hour windows)",
+      "awaiting_schedule_time": "Schedule - exact time inside the slot",
       "collecting_quotes": "Trip is open, quotes arriving",
       "trip_assigned": "Driver on the way",
       "ride_in_progress": "Riding",
@@ -53,7 +53,7 @@
       {
         "from": "idle",
         "to": "awaiting_pickup_location",
-        "action": "types auto, hi or book"
+        "action": "types auto or book"
       },
       {
         "from": "idle",
@@ -88,17 +88,37 @@
       {
         "from": "idle",
         "to": "idle",
-        "action": "anything else - help menu"
+        "action": "anything else (incl. hi) - menu: Book an auto, Help, Language"
       },
       {
         "from": "awaiting_pickup_location",
         "to": "awaiting_drop_location",
-        "action": "sends location or types area"
+        "action": "shares a location"
+      },
+      {
+        "from": "awaiting_pickup_location",
+        "to": "awaiting_pickup_location",
+        "action": "types instead - explanatory re-prompt plus a Cancel option"
+      },
+      {
+        "from": "awaiting_pickup_location",
+        "to": "idle",
+        "action": "taps Cancel booking"
       },
       {
         "from": "awaiting_drop_location",
         "to": "awaiting_trip_confirm",
         "action": "sends location or types area"
+      },
+      {
+        "from": "awaiting_drop_location",
+        "to": "awaiting_drop_location",
+        "action": "taps Type the destination - prompts for typed text"
+      },
+      {
+        "from": "awaiting_drop_location",
+        "to": "idle",
+        "action": "taps Cancel booking - wrong pickup"
       },
       {
         "from": "awaiting_trip_confirm",
@@ -112,7 +132,7 @@
       },
       {
         "from": "awaiting_trip_confirm",
-        "to": "awaiting_schedule_day",
+        "to": "awaiting_schedule_slot",
         "action": "taps Schedule"
       },
       {
@@ -126,24 +146,29 @@
         "action": "taps Change drop"
       },
       {
-        "from": "awaiting_schedule_day",
-        "to": "awaiting_schedule_hour",
-        "action": "taps Today or Tomorrow"
+        "from": "awaiting_trip_confirm",
+        "to": "idle",
+        "action": "taps Cancel booking - back to the menu"
       },
       {
-        "from": "awaiting_schedule_day",
-        "to": "awaiting_schedule_day",
-        "action": "anything else - re-prompt"
+        "from": "awaiting_schedule_slot",
+        "to": "awaiting_schedule_time",
+        "action": "picks a 3-hour slot - the next 6 from now"
       },
       {
-        "from": "awaiting_schedule_hour",
+        "from": "awaiting_schedule_slot",
+        "to": "awaiting_schedule_slot",
+        "action": "anything else, or the slot aged out - re-prompt"
+      },
+      {
+        "from": "awaiting_schedule_time",
         "to": "collecting_quotes",
-        "action": "picks an hour"
+        "action": "picks an exact time"
       },
       {
-        "from": "awaiting_schedule_hour",
-        "to": "awaiting_schedule_hour",
-        "action": "anything else - re-prompt"
+        "from": "awaiting_schedule_time",
+        "to": "awaiting_schedule_time",
+        "action": "anything else - re-prompt the slot's times"
       },
       {
         "from": "collecting_quotes",
@@ -163,7 +188,12 @@
       {
         "from": "collecting_quotes",
         "to": "awaiting_retry_choice",
-        "action": "window closes with no quotes"
+        "action": "window closes with no quotes, or the pick deadline passes"
+      },
+      {
+        "from": "collecting_quotes",
+        "to": "collecting_quotes",
+        "action": "taps a driver another rider just won - explanation + refreshed list"
       },
       {
         "from": "collecting_quotes",
@@ -236,6 +266,11 @@
         "action": "taps No - trip disputed"
       },
       {
+        "from": "awaiting_completion_confirm",
+        "to": "idle",
+        "action": "taps Yes after the 24h silence already disputed it - office owns it"
+      },
+      {
         "from": "awaiting_drop_proof",
         "to": "awaiting_drop_proof",
         "action": "taps Share location - opens the picker"
@@ -267,8 +302,8 @@
       },
       {
         "from": "awaiting_rating",
-        "to": "awaiting_rating",
-        "action": "anything else - re-prompt"
+        "to": "idle",
+        "action": "anything else - rating skipped, handled normally"
       },
       {
         "from": "awaiting_cancel_confirm",
@@ -414,6 +449,16 @@
         "action": "types an amount with several open trips"
       },
       {
+        "from": "idle",
+        "to": "awaiting_quote_amount",
+        "action": "taps See trips with one open trip"
+      },
+      {
+        "from": "idle",
+        "to": "awaiting_trip_pick",
+        "action": "taps See trips with several open trips"
+      },
+      {
         "from": "awaiting_trip_pick",
         "to": "awaiting_quote_amount",
         "action": "picks a trip"
@@ -457,7 +502,7 @@
       {
         "from": "ride_in_progress",
         "to": "awaiting_rider_rating",
-        "action": "sends DONE and the rider confirms"
+        "action": "sends DONE - driver freed and asked to rate, trip still awaits the rider"
       },
       {
         "from": "ride_in_progress",
@@ -471,8 +516,8 @@
       },
       {
         "from": "awaiting_rider_rating",
-        "to": "awaiting_rider_rating",
-        "action": "anything else - re-prompt"
+        "to": "idle",
+        "action": "anything else - rating skipped, handled normally"
       },
       {
         "from": "idle",
@@ -517,7 +562,7 @@
       {
         "from": "idle",
         "to": "idle",
-        "action": "anything else - driver help"
+        "action": "anything else, incl. greetings - menu: See trips, Help, Language"
       },
       {
         "from": "awaiting_cancel_reason",

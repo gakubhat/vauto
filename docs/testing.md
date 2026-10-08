@@ -109,7 +109,7 @@ Flags:
 |---|---|
 | `--phone` | Which number to impersonate |
 | `--as rider \| driver` | Force a role instead of resolving it |
-| `--fresh` | Wipe sessions and trips before starting |
+| `--fresh` | Wipe sessions and trips before starting (needs `TEST_SUPABASE_*`; see Testing rules) |
 | `--show-state` | Print `{ state, data }` after each turn (default on) |
 | `--lang kn \| en` | Render Kannada or English copy |
 | `--script <file>` | Replay a scripted list of inputs instead of reading stdin |
@@ -118,30 +118,55 @@ Flags:
 
 ## Suites — `server/tests/`
 
+Paths are relative to `server/tests/`. **Flow suites need the dedicated test database** (see Rules) — they import the real backend, not mocks.
+
+### Running them
+
+| Command | Runs | Needs a DB? |
+|---|---|---|
+| `npm test` | Pure suites only (top-level `*.test.ts`) | No — finishes in under a second |
+| `npm run test:flows` | The DB flow suites only | Yes |
+| `npm run test:all` | Everything | Yes |
+
+The slow, DB-backed flow suites are opt-in: they are only included when `RUN_DB_TESTS=1` (set by `test:flows` and `test:all`). That keeps a routine `npm test` instant, and stops a full ~15-minute run on every change. `RUN_DB_TESTS` is separate from the destructive-test guard — a full run still needs `TEST_SUPABASE_*` (see Rules).
+
+### Pure — no database
+
 | File | Covers |
 |---|---|
-| `rider.signup.test.ts` | Role selection, name, home location, skip |
-| `rider.booking.test.ts` | Location → destination → confirm → quotes → accept |
-| `rider.scheduling.test.ts` | Today/Tomorrow + hour, `pickup_at`, lead timing |
-| `quotes-list.test.ts` | Quotes arrive as one list, list refreshes, rider picks a row, window close does not auto-assign |
-| `no-cover.test.ts` | No autos cover the pickup: told immediately (not after a dead wait), Try again / Change details offered, "We told N autos" when there is coverage |
-| `drop-proof.test.ts` | Typed destination: the optional post-ride location ask on Yes **and** No, skip continues, and no ask when the drop is already known |
-| `whatsapp.test.ts` | Every button key exists; no label exceeds the WhatsApp caps; address labels name the area and town; every "contact the office" message carries the helpline |
-| `webhook-signature.test.ts` | `X-Hub-Signature-256` accepted when valid, rejected when missing, tampered, wrong-secret or truncated (pure — no DB) |
-| `helpline.test.ts` | "help" answers with the configured number (Kannada too), still answers when unset, reachable by rider and driver, given on a dispute, and **queues one help request per phone** |
-| `help-anywhere.test.ts` | "help" works mid-trip, once assigned, in Kannada, for a pending driver and mid-ride — and leaves the trip untouched |
-| `recover.test.ts` | Office recovery: reset clears a stale `pending_trip_id`, the person can book again afterwards, a live trip is untouched and still blocks a second booking |
-| `office-alerts.test.ts` | A help request messages the office: once per request not per tap, disputes marked urgent, nothing sent when unconfigured, never alerting the office about itself |
-| `rider.expiry.test.ts` | 30-min expiry, Try again reusing pickup/drop, Change details |
-| `rider.cancel.test.ts` | Cancel pre-OTP, blocked after OTP |
-| `driver.signup.test.ts` | Name → vehicle → location → radius → KYC → pending |
-| `driver.quote.test.ts` | Lead received, quote by button, quote by bare number, validation, duplicate rejected |
-| `driver.trip.test.ts` | Arrived → OTP (wrong then right) → DONE → rating |
-| `matching.test.ts` | Radius coverage, distance ordering, `max_drivers_per_lead`, pending/subscribed excluded |
-| `concurrency.test.ts` | **Two riders accept the same driver — exactly one wins, loser sees remaining quotes** |
-| `subscription.test.ts` | Lapsed driver gets no leads, gets renewal message |
-| `state.test.ts` | Idle priority order, stale session cleanup, no silent fall-through |
-| `i18n.test.ts` | Kannada and English render for every template |
+| `whatsapp.test.ts` | Message labels: every button key exists, no label exceeds the WhatsApp caps, list row totals, readable address labels, money formatting, the product name |
+| `schedule.test.ts` | IST scheduling maths: 12-hour labels, rolling slots across days, quiet-window dispatch times, unserviceable slots hidden |
+| `webhook-signature.test.ts` | `X-Hub-Signature-256` accepted when valid; rejected when missing, tampered, wrong-secret, truncated or empty |
+| `docs.test.ts` | Docs drift guard: states, buttons, admin routes and analytics events all match the code |
+
+### Flows — real database
+
+| File | Covers |
+|---|---|
+| `flows/onboarding.test.ts` | First contact: language → role, language saved per role, re-prompt on bad input |
+| `flows/signup.test.ts` | Rider name + Book button; driver name → vehicle → base → radius → KYC → pending; typed text where a location or image is expected is rejected |
+| `flows/lifecycle.test.ts` | Full ride: quotes → assign → OTP → DONE → confirm → rate; the dispute safety net; rating is skippable |
+| `flows/quotes-list.test.ts` | Quotes as one list, refreshed; rider picks a row; window close does not auto-assign |
+| `flows/expiry.test.ts` | Quote-window expiry, Try again reusing pickup/drop, Change details, auto-pick-cheapest, reopening |
+| `flows/scheduling.test.ts` | Rolling 3-hour slots → exact time; `pickup_at`; leads held back until dispatch |
+| `flows/scheduler.test.ts` | One scheduler pass: scheduled dispatch, missed-window recovery, all-send-failure retry, dispute alert |
+| `flows/no-cover.test.ts` | No autos cover the pickup: told immediately; Try again / Change details; "We told N autos" when covered |
+| `flows/stale-quote.test.ts` | Quoting a trip that expired or was taken: correct wording, refuses a late amount |
+| `flows/lead-template.test.ts` | 24h window: template vs interactive, Kannada locale, body parameters, channel/wamid recorded |
+| `flows/gating.test.ts` | Dispatch gating (unapproved / lapsed / out-of-radius / already on a trip); idle priority; post-assignment cancel |
+| `flows/number-reveal.test.ts` | Reciprocal number reveal on assignment; friendly status word; nothing revealed while collecting |
+| `flows/cancel-button.test.ts` | Cancel button on "finding an auto", and it cancels |
+| `flows/cancel-reasons.test.ts` | Rider and driver reasons (incl. typed "Other"); re-dispatch when a driver drops out |
+| `flows/drop-proof.test.ts` | Typed drop: optional post-ride location ask on Yes **and** No; driver freed at DONE; disputed driver released |
+| `flows/address-and-driver-controls.test.ts` | Address labels over raw coordinates; driver cancel/DONE controls; rider told when the driver starts moving |
+| `flows/concurrency.test.ts` | **Two riders accept the same driver — exactly one wins, loser sees remaining quotes** |
+| `flows/recover.test.ts` | Office recovery: reset clears a stale `pending_trip_id`, the rider can book again, a live trip is untouched |
+| `flows/helpline.test.ts` | "help" answers with the number (Kannada too), still answers unset, reachable by both roles, given on a dispute |
+| `flows/help-anywhere.test.ts` | "help" works from every state and leaves the trip untouched |
+| `flows/office-alerts.test.ts` | Help/dispute reaches the office: once per request, dispute urgent, none when unconfigured, never self-alert |
+| `flows/office-notifications.test.ts` | Driver told on verify/approve/reject; rider told what to do next after a completed ride |
+| `flows/delete-user.test.ts` | Deleting a rider/driver removes attached data; driver's trips anonymised |
+| `flows/admin-capabilities.test.ts` | Office role override both ways, settings validation, dispute resolution |
 
 ### Rules
 
@@ -154,7 +179,8 @@ Flags:
 3. **Assert on state, DB, and messages** — messages alone can pass while the state is wrong.
 4. **When fixing a bug, add the test that would have caught it.** Assert the specific thing that was broken (e.g. after accepting a quote, `stateOf()` must be `trip_assigned`, and no menu must be sent).
 5. **30s timeout** for full-lifecycle tests — they hit the real database.
-6. **Never run against a project holding real users.** `truncateAll()` is destructive. Guard with `ALLOW_DESTRUCTIVE_TESTS=true` so it cannot happen by accident.
+6. **Never run against a project holding real users.** `truncateAll()` is destructive. Set `TEST_SUPABASE_URL` + `TEST_SUPABASE_SERVICE_ROLE_KEY` to a dedicated throwaway project (a Supabase dev branch works); under `NODE_ENV=test` the client uses those and **never** `SUPABASE_URL`. If they are blank, `npm test` fails loudly instead of wiping live data. `ALLOW_DESTRUCTIVE_TESTS=true` is a second opt-in, not the guard.
+7. **Stop `npm run dev` before `npm test`.** The dev server starts its own 60s scheduler against the same database, so it can dispatch, expire, or open dispute requests for trips a test just created — the classic cause of a suite that passes alone and fails in a full run.
 
 ### Example
 

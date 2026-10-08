@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { getDriver, patchDriver, recordSubscription, setApproval, overrideRole } from './api';
+import { getDriver, patchDriver, recordSubscription, setApproval, setDriverRole } from './api';
 import { DeleteUserButton } from './DeleteUserButton';
 import { KycImage } from './KycImage';
 import { RecoverPanel } from './RecoverPanel';
@@ -24,6 +24,7 @@ interface DriverDetailData {
   subscription_until: string | null;
   rating_avg: number;
   rating_count: number;
+  role_override: 'rider' | 'driver' | null;
   trips: Array<{ id: string; trip_number: number; status: string; quoted_amount_paise: number | null }>;
   subscriptions: Array<{ id: string; paid_amount_paise: number; paid_via: string; valid_until: string }>;
   metrics: { leads_sent: number; quotes_sent: number; quotes_won: number; response_rate: number };
@@ -333,7 +334,7 @@ export function DriverDetail() {
             {d.subscriptions.map((s) => (
               <tr key={s.id}>
                 <td>{new Date(s.valid_until).toLocaleDateString()}</td>
-                <td>Rs {Math.round(s.paid_amount_paise / 100)}</td>
+                <td>₹{Math.round(s.paid_amount_paise / 100)}</td>
                 <td>{s.paid_via}</td>
                 <td>{new Date(s.valid_until).toLocaleDateString()}</td>
               </tr>
@@ -359,7 +360,7 @@ export function DriverDetail() {
                   <Link to={`/trips/${t.id}`}>{t.trip_number}</Link>
                 </td>
                 <td>{t.status}</td>
-                <td>{t.quoted_amount_paise ? `Rs ${Math.round(t.quoted_amount_paise / 100)}` : '—'}</td>
+                <td>{t.quoted_amount_paise ? `₹${Math.round(t.quoted_amount_paise / 100)}` : '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -369,21 +370,32 @@ export function DriverDetail() {
       <RecoverPanel phone={d.phone} />
 
       <div className="panel">
+        <h2>Role</h2>
+        {d.role_override ? (
+          <div className="row">
+            <span className="badge warn">pinned to {d.role_override}</span>
+            <button onClick={() => void act(() => setDriverRole(d.id, 'auto'))}>Clear override</button>
+            <span className="muted">Let the role resolve from the tables again.</span>
+          </div>
+        ) : (
+          <div className="row">
+            <button onClick={() => void act(() => setDriverRole(d.id, 'rider'))}>
+              Switch this phone to the rider flow
+            </button>
+            <span className="muted">
+              Only for a wrong Rider/Driver choice. Pins the role across session cleanup.
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="panel">
         <h2>Danger zone</h2>
-        <div className="row">
-          <button onClick={() => void act(() => overrideRole(d.id, 'rider'))}>
-            Switch this phone to the rider flow
-          </button>
-          <span className="muted">
-            Only for a wrong Rider/Driver choice. Deletes the session so the role re-resolves from
-            the tables. Use <em>Reset to idle</em> above for a stuck conversation.
-          </span>
-        </div>
         <div className="row">
           <DeleteUserButton kind="driver" id={d.id} name={d.name ?? ''} />
           <span className="muted">
-            Removes the driver, their quotes, dispatches, subscription, session and KYC
-            documents. Trips they drove are kept but anonymised, since those belong to riders.
+            Removes the driver, their quotes, dispatches, subscription, session and KYC documents.
+            Trips they drove are kept but anonymised, since those belong to riders.
           </span>
         </div>
       </div>

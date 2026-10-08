@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, afterAll, describe, it, expect } from 'vitest';
 import { supabaseAdmin } from '../../src/supabase/client';
-import { closeQuoteWindow } from '../../src/lib/matching';
+import { closeQuoteWindow, reopenTrip } from '../../src/lib/matching';
 import { getTrip } from '../../src/state/queries';
 import {
   DRIVER_A_PHONE,
@@ -98,6 +98,24 @@ describe('quote window expiry', () => {
     expect(trip?.status).toBe('open');
     expect((await stateOf(RIDER_PHONE))?.state).toBe('collecting_quotes');
     expect(findButtonId('accept_quote_', RIDER_PHONE)).toBeTruthy();
+  }, 60000);
+
+  it('reopening resets the trip and re-dispatches', async () => {
+    await seedRider();
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+    const tripId = await postTrip();
+    await closeQuoteWindow((await getTrip(tripId)) as never);
+    expect((await getTrip(tripId))?.status).toBe('expired');
+    messageLog.length = 0;
+
+    const ok = await reopenTrip((await getTrip(tripId)) as never);
+    expect(ok).toBe(true);
+
+    const trip = await getTrip(tripId);
+    expect(trip?.status).toBe('open');
+    expect(trip?.leads_dispatched).toBe(true);
+    expect((await stateOf(RIDER_PHONE))?.state).toBe('collecting_quotes');
+    expect(findButtonId('quote_', DRIVER_A_PHONE)).toBeTruthy();
   }, 60000);
 
   it('withdraws losing quotes and marks them lapsed', async () => {

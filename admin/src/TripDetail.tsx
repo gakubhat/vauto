@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getTrip, setTripStatus } from './api';
+import { Notice, useApi } from './ui';
 
 interface TripDetailData {
   id: string;
@@ -22,6 +23,8 @@ interface TripDetailData {
   quote_window_closes_at: string | null;
   quoted_amount_paise: number | null;
   reported_fare_paise: number | null;
+  cancel_reason: string | null;
+  resolution_note: string | null;
   quotes: Array<{ id: string; driver_id: string; amount_paise: number; status: string }>;
   dispatches: Array<{ driver_id: string; distance_km: number; sent_at: string; delivered_at: string | null; read_at: string | null }>;
   events: Array<{ id: string; at: string; type: string; properties: Record<string, unknown> }>;
@@ -30,20 +33,23 @@ interface TripDetailData {
 
 export function TripDetail() {
   const { id } = useParams();
-  const [t, setT] = useState<TripDetailData | null>(null);
+  const { data: t, error, loading, reload } = useApi<TripDetailData>(
+    () => getTrip(id as string) as Promise<TripDetailData>,
+    [id],
+  );
+  const [reason, setReason] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  async function load() {
-    setT((await getTrip(id as string)) as TripDetailData);
+  if (!t) {
+    return (
+      <>
+        <h1>Trip</h1>
+        <Notice error={error} loading={loading} onRetry={reload} />
+      </>
+    );
   }
 
-  useEffect(() => {
-    void load();
-  }, [id]);
-
-  if (!t) return <p>Loading…</p>;
-
-  // `typeof` rather than `!== null`: a column that is absent (older row, or a
-  // migration not yet applied) arrives as undefined, not null.
   const map = (lat: number | null | undefined, lng: number | null | undefined) =>
     typeof lat === 'number' && typeof lng === 'number'
       ? `https://www.google.com/maps?q=${lat},${lng}`
@@ -55,6 +61,28 @@ export function TripDetail() {
       : null;
 
   const hasDispute = typeof t.dispute_lat === 'number' || Boolean(t.dispute_text);
+
+  async function change(status: string) {
+    const warning =
+      status === 'open'
+        ? `Reopen trip #${t!.trip_number}?\n\nThis resets the trip and sends NEW leads to nearby drivers and a message to the rider.`
+        : `Mark trip #${t!.trip_number} as ${status}?`;
+    if (!confirm(warning)) return;
+    setBusy(true);
+    try {
+      await setTripStatus(t!.id, {
+        status,
+        ...(reason.trim() ? { reason: reason.trim() } : {}),
+        ...(note.trim() ? { resolution_note: note.trim() } : {}),
+      });
+      setReason('');
+      setNote('');
+      await reload();
+    } catch (e) {
+      alert((e as Error).message);
+    }
+    setBusy(false);
+  }
 
   return (
     <>
@@ -109,9 +137,13 @@ export function TripDetail() {
           {t.pickup_at && ` · scheduled ${new Date(t.pickup_at).toLocaleString()}`}
         </p>
         <p className="muted">
-          Quoted {t.quoted_amount_paise ? `Rs ${Math.round(t.quoted_amount_paise / 100)}` : '—'} ·
-          reported {t.reported_fare_paise ? `Rs ${Math.round(t.reported_fare_paise / 100)}` : '—'}
+          Quoted {t.quoted_amount_paise ? `₹${Math.round(t.quoted_amount_paise / 100)}` : '—'} ·
+          reported {t.reported_fare_paise ? `₹${Math.round(t.reported_fare_paise / 100)}` : '—'}
         </p>
+        {t.cancel_reason && <p className="muted">Cancel reason: {t.cancel_reason}</p>}
+        {t.resolution_note && (
+          <p className="notice-ok">Office resolution: {t.resolution_note}</p>
+        )}
       </div>
 
       <div className="panel">
@@ -130,7 +162,7 @@ export function TripDetail() {
                 <td>
                   <Link to={`/drivers/${q.driver_id}`}>{q.driver_id.slice(0, 8)}</Link>
                 </td>
-                <td>Rs {Math.round(q.amount_paise / 100)}</td>
+                <td>₹{Math.round(q.amount_paise / 100)}</td>
                 <td>{q.status}</td>
               </tr>
             ))}
@@ -223,9 +255,27 @@ export function TripDetail() {
 
       <div className="panel">
         <h2>Office actions</h2>
+        <p className="muted">
+          Reopen resets the trip and re-dispatches. Cancelling keeps the reason below; closing a
+          dispute keeps the resolution note and tells the rider.
+        </p>
+        <div className="row">
+          <input
+            placeholder="Cancel reason (optional)"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            style={{ width: 260 }}
+          />
+          <input
+            placeholder="Resolution note (kept for disputes)"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            style={{ width: 300 }}
+          />
+        </div>
         <div className="row">
           {['completed', 'cancelled', 'disputed', 'open'].map((s) => (
-            <button key={s} onClick={() => void setTripStatus(t.id, s).then(load)}>
+            <button key={s} disabled={busy} onClick={() => void change(s)}>
               Mark {s}
             </button>
           ))}

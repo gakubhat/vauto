@@ -82,6 +82,38 @@ describe('office alerts', () => {
     expect(alerts[0]).toContain(tripId.slice(0, 8));
   }, 60000);
 
+  it('escalates an already-open help request to a dispute', async () => {
+    await seedRider();
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+    const tripId = await postTrip();
+    await driverStep(DRIVER_A_PHONE, { text: '70' });
+    await riderStep({ text: findButtonId('accept_quote_', RIDER_PHONE) as string });
+    await driverStep(DRIVER_A_PHONE, { text: 'arrived' });
+    const { data: otp } = await supabaseAdmin
+      .from('trip_otps')
+      .select('code')
+      .eq('trip_id', tripId)
+      .single();
+    await driverStep(DRIVER_A_PHONE, { text: (otp as { code: string }).code });
+    await driverStep(DRIVER_A_PHONE, { text: 'trip_done' });
+
+    // The rider already has a plain help request open...
+    await riderStep({ text: 'help' });
+    messageLog.length = 0;
+
+    // ...then disputes. The one-open-request rule must not swallow the dispute.
+    await riderStep({ text: 'confirm_no' });
+
+    const { data: help } = await supabaseAdmin
+      .from('help_requests')
+      .select('source')
+      .eq('phone', RIDER_PHONE)
+      .is('closed_at', null);
+    expect(help?.length).toBe(1);
+    expect(help?.[0]?.source).toBe('dispute');
+    expect(bodiesTo(OFFICE).some((b) => b.includes('Dispute'))).toBe(true);
+  }, 60000);
+
   it('alerts once, not once per "help" tap', async () => {
     await seedRider();
 

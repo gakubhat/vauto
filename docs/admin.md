@@ -62,13 +62,18 @@ Build and run everything with `npm run build:all` (see `docs/local-setup.md`).
 | Driver Detail | `/drivers/:id` | Everything about one driver — see below |
 | Riders | `/riders` | List, search by phone/name |
 | Rider Detail | `/riders/:id` | Profile, home location, rating, trip history, active trip |
-| Trips | `/trips` | List, filter by status, search by trip number or phone |
+| Trips | `/trips` | List, filter by status, search by trip number or rider name/phone, paged 100 at a time |
 | Trip Detail | `/trips/:id` | Full timeline — see below |
 | Help | `/help` | Open help requests, oldest first — phone, waiting time, last messages, **Mark handled**. "Open only" toggle |
 | Sessions | `/sessions` | Live `conversation_sessions` — **the state-machine debugger**. Filter, see stuck rows badged, and **Reset** any one of them inline |
 | Recover | `/recover/:phone` | Diagnosis for one phone in plain language, plus reset / delete-session. Linked from Sessions and both detail pages |
-| Analytics | `/analytics` | Funnel, driver leaderboard, area/route demand |
+| Analytics | `/analytics` | Funnel (7 days), driver leaderboard and area demand (30 days) |
 | Settings | `/settings` | Editable configuration |
+
+Every page that loads data now shows a real **error with a Retry** instead of a permanent
+"Loading…", and every card on the Dashboard that represents a queue links to the filtered page.
+The top-bar field finds a person by phone and opens **Recover** — the office usually starts with a
+phone number from a call.
 
 ### Driver Detail — the main control surface
 
@@ -80,7 +85,7 @@ Build and run everything with `npm run build:all` (see `docs/local-setup.md`).
 | Subscription | `subscription_until`, trial end, payment history | **Set expiry date**, record offline payment (amount + cash/QR) |
 | Stats | Leads sent / read, quotes sent, quotes won, median response time, cancels, completion rate, rating, quoted vs paid | — |
 | Trips | Trip history, active trip | Open a trip |
-| Role | Current role | **Override role** (office-only corrective action) |
+| Role | Current role | **Override role** both ways, or clear it. Pinned in `role_overrides`, so it survives the 24h session cleanup |
 
 **Seeding a driver** (the cold-start path) is a *Create driver* form here: phone, name, vehicle, base location, radius → inserted with `approval_status = 'approved'`. The driver never signs up and never has to agree to anything. Their first WhatsApp message simply resolves their role from the `drivers` table.
 
@@ -97,7 +102,7 @@ Build and run everything with `npm run build:all` (see `docs/local-setup.md`).
 - **Lead dispatches**: every driver offered, distance, sent/delivered/read timestamps
 - **Event timeline**: everything from the `events` table in order
 - **Message log**: full `bot_messages` transcript for the trip
-- Actions: force a status change (with a reason), cancel, resolve a dispute
+- Actions: force a status change with an optional **cancel reason** and **resolution note**. Closing a disputed trip keeps the note (shown on the trip and logged as `dispute_resolved`) and messages the rider that it is resolved, so they are not left wondering. **Reopen** is not a plain status flip — it resets the trip and re-dispatches, so a finished trip can never come back `open` with `leads_dispatched` still set and no drivers told
 
 ### Help — the queue that makes "we'll call you" true
 
@@ -105,9 +110,10 @@ Sending **help** (or disputing a trip) opens a row in `help_requests`. The Help
 page lists them oldest-first with the phone, how long they have waited, and the
 last three messages inline, so the office has context without opening Sessions.
 
-Closing one is the only action. There is **one open request per phone** — a
-second "help" is the same person still waiting, not a new ticket — so the queue
-cannot be flooded by someone tapping help repeatedly.
+Closing one is the main action; a mistakenly-handled one can be **reopened** (clears `closed_at`).
+There is **one open request per phone** — a second "help" is the same person still waiting, not a
+new ticket — so the queue cannot be flooded by someone tapping help repeatedly. A dispute escalates
+an open help request to urgent rather than being swallowed by it.
 
 `help_requests` is separate from `bot_messages` on purpose: the transcript is
 history, this is state the office acts on (`opened_at` → `closed_at`).
@@ -147,8 +153,11 @@ the office can see it. So a full recovery from a wedged booking is *two* steps: 
 reset the session. `tests/flows/recover.test.ts` asserts exactly that — reset alone is not a bypass
 for `one_active_trip_per_rider`.
 
-Role override on a driver is labelled **"Switch this phone to the rider flow"** — it is a corrective
-action for a wrong role, not a general reset.
+Role override is a corrective action for a wrong role, not a general reset, and it works in
+**both** directions: a rider wrongly on the driver flow can be switched to rider and vice versa. The
+choice is stored in `role_overrides` and consulted before the tables, because the session row that
+would otherwise carry the role is deleted by the 24h cleanup. *Clear override* returns the phone to
+automatic resolution.
 
 ## API
 
@@ -164,22 +173,21 @@ action for a wrong role, not a general reset.
 | POST | `/drivers/:id/approval` | `{ action: approve \| reject \| suspend }` |
 | POST | `/drivers/:id/kyc` | `{ action: approve \| reject }` |
 | POST | `/drivers/:id/subscription` | `{ paid_amount_paise, paid_via, valid_until }` — records offline cash/QR |
-| POST | `/drivers/:id/role` | Office role override |
+| POST | `/drivers/:id/role` | Office role override (`rider` \| `driver` \| `auto` to clear) |
 | GET | `/riders` | List (`?q=`) |
 | GET | `/riders/:id` | Detail |
 | PATCH | `/riders/:id` | Edit name, home location, `preferred_language` (`kannada`\|`english`) |
+| POST | `/riders/:id/role` | Office role override (`rider` \| `driver` \| `auto` to clear) |
 | GET | `/trips` | List (`?status=&q=&page=`) |
-| GET | `/trips/:id` | Detail |
-| POST | `/trips/:id/status` | `{ status, reason }` |
-| GET | `/trips/:id/quotes` | Quotes for a trip |
-| GET | `/trips/:id/dispatches` | Who was offered, delivery/read state |
-| GET | `/trips/:id/messages` | Transcript |
+| GET | `/trips/:id` | Detail — includes quotes, dispatches, events and messages |
+| POST | `/trips/:id/status` | `{ status, reason?, resolution_note? }`. Reopening resets and re-dispatches; closing a dispute records the note and notifies the rider |
 | GET | `/events` | Timeline (`?trip_id=`) |
 | GET | `/sessions` | Live sessions |
 | POST | `/sessions/:phone/reset` | **Recovery.** `{ to: 'idle' \| 'clear' }` — reset the session to idle, or delete it so the role re-resolves. Never touches a live trip |
-| GET | `/recover/:phone` | Diagnosis for one phone: session, role, blocking trip, open help, and a plain-language list of problems |
+| GET | `/recover/:phone` | Diagnosis for one phone: session, role, role override, blocking trip, open help, and a plain-language list of problems |
 | GET | `/help` | Help requests, open first (`?open=1`) — each with the last 3 messages |
 | POST | `/help/:id/close` | Mark a help request handled |
+| POST | `/help/:id/reopen` | Re-open a handled request |
 | GET | `/messages` | Chat history for a phone (`?phone=`) |
 | GET / PUT | `/settings` | Read and edit configuration |
 | GET | `/analytics/funnel` | Stage-by-stage conversion |
@@ -198,6 +206,7 @@ action for a wrong role, not a general reset.
 | `radius_options` | 2, 3, 5, 8 | Signup buttons |
 | `auto_pick_cheapest` | false | Off: rider must pick when the window closes. On: assign cheapest |
 | `fare_check_enabled` | false | Quoted-vs-paid prompt after drop |
+| `scheduling_enabled` | false | Off at launch. On: the confirm card offers **Schedule** (future pickups). Keep off until supply can serve them |
 | `trial_days` | 30 | Trial length |
 | `trial_min_rides` | 10 | Trial also requires this many completed rides |
 | `subscription_price_paise` | — | Shown to drivers on lapse |
@@ -207,6 +216,16 @@ action for a wrong role, not a general reset.
 | `kyc_approved_template` | `kyc_approved` | Utility template sent when approving a driver idle >24h. Must match the name registered in Meta |
 | `lead_template` | `new_lead` | Utility template sent as a lead to a driver idle >24h |
 | `dispute_hours` | 24 | Silence before auto-dispute |
+| `scheduled_lead_hours` | 2 | How long before a scheduled pickup the leads go out (the scheduler also looks back this far after an outage) |
+| `quiet_hours_start` / `quiet_hours_end` | 22 / 7 | IST hours when scheduled leads are **not** sent. A trip whose lead time falls here is offered the evening before instead |
+| `evening_dispatch_hour` | 21 | IST hour a quiet-window trip is actually offered the evening before |
+| `scheduled_confirm_minutes` | 90 | If a scheduled trip still has no quote this long before pickup, expire it and warn the rider to arrange a backup |
+| `pick_deadline_minutes` | 30 | After the quote window closes with quotes, the rider must pick within this long or the trip expires and frees them to book again |
+| `lead_stage_size` | 10 | How many nearby drivers are offered a trip per dispatch stage |
+| `lead_stage_interval_minutes` | 6 | Minutes before widening to the next stage if the trip still needs quotes |
+| `lead_stage_expand_below` | 3 | Widen only while pending quotes are below this count |
+| `template_leads_per_driver_per_day` | 5 | Max platform-initiated template leads to one driver per day (0 = unlimited). Caps the cost of a dormant driver |
+| `lead_warm_band_km` | 1 | Within this many km of the pickup, warm (recently active) drivers are offered before cold ones; beyond it, nearest-first. 0 disables |
 
 ### Two things worth knowing
 

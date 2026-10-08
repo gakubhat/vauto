@@ -120,8 +120,9 @@ trips(id, trip_number, rider_id, driver_id, status,
       code_4digit,
       quoted_amount_paise, reported_fare_paise,
       created_at, first_quote_at, assigned_at, arrived_at,
-      started_at, done_at, completed_at, cancelled_at,
-      cancel_reason, cancelled_by)
+      started_at, done_at, completed_at, pick_deadline_at, next_lead_batch_at,
+      cancelled_at,
+      cancel_reason, resolution_note, cancelled_by)
 
 quotes(id, trip_id, driver_id, amount_paise, status, created_at)
        -- status: pending | accepted | withdrawn | lapsed
@@ -145,9 +146,17 @@ bot_messages(id, phone, direction, role, message_type, body,
 help_requests(id, phone, role, source, reason, trip_id,
               opened_at, closed_at, closed_by)   -- source: help | dispute
 
+role_overrides(phone PK, role, set_at, set_by)
+  -- office role correction; consulted before riders/drivers so it survives cleanup
+
 settings(singleton: quote_window_minutes, max_drivers_per_lead,
          default_radius_km, radius_options, auto_pick_cheapest,
-         fare_check_enabled, trial_days, trial_min_rides, dispute_hours,
+         fare_check_enabled, scheduling_enabled, trial_days, trial_min_rides,
+         dispute_hours,
+         scheduled_lead_hours, quiet_hours_start, quiet_hours_end,
+         evening_dispatch_hour, scheduled_confirm_minutes, pick_deadline_minutes,
+         lead_stage_size, lead_stage_interval_minutes, lead_stage_expand_below,
+         template_leads_per_driver_per_day, lead_warm_band_km,
          subscription_price_paise, renewal_contact, helpline)
 ```
 
@@ -158,10 +167,11 @@ CREATE UNIQUE INDEX one_active_trip_per_rider
   ON trips (rider_id) WHERE status IN ('open','assigned','arrived','in_progress','disputed');
 
 CREATE UNIQUE INDEX one_active_trip_per_driver
-  ON trips (driver_id) WHERE status IN ('assigned','arrived','in_progress','disputed');
+  ON trips (driver_id)
+  WHERE status IN ('assigned','arrived','in_progress') AND done_at IS NULL;
 ```
 
-Note the driver index excludes `open`: a driver may hold quotes on many open trips, but may only ever have one that has been assigned to them.
+Note the driver index excludes `open`: a driver may hold quotes on many open trips, but may only ever have one that has been assigned to them. It also ignores trips the driver has already finished (`done_at` set) and `disputed` trips — the ride is over for him, so he stays in the matching pool while the rider confirms or the office resolves the dispute.
 
 **Matching** uses PostGIS:
 
@@ -186,19 +196,24 @@ stateDiagram-v2
     assigned --> cancelled: Rider cancels (pre-OTP)
     assigned --> arrived: Driver taps "I've arrived"
     arrived --> in_progress: Driver enters correct 4-digit code
-    in_progress --> completed: Driver sends DONE, rider says Yes
+    in_progress --> completed: Driver sent DONE, rider says Yes
     in_progress --> disputed: Rider says No, or 24h silence
     completed --> [*]: Both rated
 ```
 
+The driver is released the moment he sends `DONE` (the trip no longer blocks his `one_active_trip_per_driver` slot), but the trip stays `in_progress` until the rider confirms, disputes, or 24h elapse. That keeps the rider blocked from a second booking and preserves the silence-dispute path.
+
 ## Quote mechanics
 
+0. **Button-first, no keywords.** A resting rider sees a menu — **Book an auto** / **Help** / **Language** — after signup and for anything unrecognised (including "hi"). Booking is tappable throughout, and the drop step and confirm card carry a **Cancel** so a wrong pickup can be abandoned and restarted. Typing is a shortcut, never a requirement.
+
 1. Trip is created → matched drivers each receive a lead: *"Gandhi Circle → Bus Stand, 1.8 km. Reply with your price (e.g. 70)."* Lead also carries a `quote_{tripId}` button for drivers who prefer tapping.
+2. **Dispatched in stages.** The nearest `lead_stage_size` drivers are offered first (the nearest pool is shuffled so the same few are not always first). If the trip still has fewer than `lead_stage_expand_below` quotes after `lead_stage_interval_minutes`, the next nearest batch is offered — up to `max_drivers_per_lead`. A driver is never offered the same trip twice. Only **dormant** drivers (outside the 24h window) cost money, and they are templated at most `template_leads_per_driver_per_day` times a day; warm drivers are unlimited and free. This bounds both message cost and driver noise. **Within `lead_warm_band_km` of the pickup, warm drivers are offered first** — free to reach and demonstrably at their phone — while beyond it nearest-first wins, so a warm driver further away never beats a cold one who is closer to the rider.
 2. **The rider is told what dispatch actually did**: *"We told N autos nearby"* when drivers were reached, or *"No autos cover this area right now"* (with Try again / Change details) when nobody was — in which case the trip is expired **immediately** rather than left to run out a window that cannot produce a quote. Never show a driver count before booking: it is an implied promise the platform does not make.
 3. Driver replies with a number. That becomes a `quote`.
-4. **The rider gets one WhatsApp list of pending quotes**, refreshed as each quote arrives (name, vehicle, rating, amount). Tapping a row assigns that auto. Cancel is the last row. WhatsApp caps a list at 10 rows, so 9 quotes plus Cancel.
+4. **The rider gets one WhatsApp list of pending quotes**, refreshed as each quote arrives (name, vehicle, rating, amount), **ordered cheapest-first, then by who replied first, then by rating** — so equal quotes are not ordered by luck. Tapping a row assigns that auto. Cancel is the last row. WhatsApp caps a list at 10 rows, so 9 quotes plus Cancel.
 5. Rider picks from the list → assignment.
-6. **At window close**, if the rider has not picked: they are asked to choose from the same list, with no time limit, and new quotes stop. Zero quotes → expire. Office can turn on `auto_pick_cheapest` to assign the cheapest instead (off by default — the rider chooses).
+6. **At window close**, if the rider has not picked: they are asked to choose from the same list and given a **pick deadline** (`pick_deadline_minutes`, default 30). If they still do not pick, the trip expires with **Try again**, so it cannot block them from booking again. Zero quotes → expire. Office can turn on `auto_pick_cheapest` to assign the cheapest instead (off by default — the rider chooses).
 
 ### The double-assignment guard
 
@@ -211,15 +226,15 @@ UPDATE trips
 RETURNING id;
 ```
 
-combined with `one_active_trip_per_driver`. The second concurrent assignment violates the partial unique index, the transaction rolls back, and that rider is told *"that auto just took another trip — here are your other quotes"*. **Postgres guarantees it; no application-level locking, no WhatsApp-level coordination.**
+combined with `one_active_trip_per_driver`. The second concurrent assignment violates the partial unique index, the transaction rolls back, and that rider is told *"That auto just took another ride — here are your other quotes"* and shown the refreshed list. **Postgres guarantees it; no application-level locking, no WhatsApp-level coordination.**
 
-When a driver wins a trip, their other pending quotes are set to `withdrawn` and those riders are notified.
+When a driver wins a trip, their other pending quotes are set to `withdrawn` and the driver is told (*"your other quotes were withdrawn"*). Those riders are not pushed a message; the next time they open the list it no longer shows that driver, and if they tap a taken driver they are told and shown the refreshed list.
 
 ## Scheduling
 
-Rider chooses **Today / Tomorrow** then an **hour** from a list — two taps, no typing. `pickup_at` is stored; `quote_window_closes_at = pickup_at`.
+Rider taps **Schedule** and picks from the **next six 3-hour windows from now** ("3–6 PM today", "6–9 AM tomorrow" — rolling across days, IST), then the exact hour inside that window. Both lists are small, so nothing hits WhatsApp's 10-row cap and there is no typing. `pickup_at` is stored; `quote_window_closes_at = pickup_at`. **Scheduling is off at launch** (`scheduling_enabled`, default false): with few drivers a scheduled trip usually goes unfilled, which costs more trust than not offering it, so the confirm card shows only *Book now*. Turn it on once immediate bookings reliably get quotes.
 
-Leads for a scheduled trip go out ~2 hours before `pickup_at` (pg_cron). Scheduling is not just a convenience — it gives drivers hours to respond instead of minutes, which is the main mitigation for low driver response rates. The rider is told at that moment what dispatch did — how many autos were notified, or that nobody covers the area — so a scheduled trip is never silently dead.
+Leads for a scheduled trip normally go out `scheduled_lead_hours` (default 2) before `pickup_at`, but **never during the quiet window** (default 22:00–07:00 IST): a trip whose lead time lands inside it is offered at `evening_dispatch_hour` (default 21:00) the evening before, so a 5 AM pickup reaches drivers while they are awake instead of at 3 AM. At dispatch, `quote_window_closes_at` is moved to `max(pickup_at, now + quote_window_minutes)`, so quotes always get a real window and the trip is never expired the instant its leads go out. The scheduler looks back as well as forward, so a dispatch missed during an outage is recovered on the next pass; a trip that is still never dispatched is expired with an honest *"no autos cover this area"* rather than *"no autos responded"*. If an overnight trip still has no quote `scheduled_confirm_minutes` (default 90) before pickup, it is expired early and the rider is warned, so they can arrange a backup rather than finding out at the pickup time. Pre-dawn slots are only offered while we can still give notice: once the quiet window starts (default 22:00), the earliest bookable pickup slides to the morning, because the evening-before send has gone and a night send is forbidden. Scheduling is the main mitigation for low driver response rates, because it gives drivers hours to respond instead of minutes.
 
 ## Completion, cancellation, dispute
 
@@ -230,8 +245,8 @@ Leads for a scheduled trip go out ~2 hours before `pickup_at` (pg_cron). Schedul
 | Start | Rider is shown a 4-digit code on assignment, says it aloud at pickup; driver sends the code or taps **Rider dropped** → `in_progress` |
 | Cancel | Rider may cancel any time **before** the OTP is verified. Driver may cancel after accepting. Both are asked for a **reason** (predefined list, with *Other* prompting for typed text) before the cancellation is final |
 | Driver drops out | The trip is reopened, other nearby drivers are **re-dispatched immediately**, and the rider is told another auto is being found. Without the re-dispatch the rider would wait out the whole quote window with nobody alerted |
-| End | Driver sends `DONE` → rider gets Yes/No |
-| Dispute | Rider says No, or does not respond within `dispute_hours` (default 24) → `disputed`, flagged for office |
+| End | Driver sends `DONE` → the ride is over for the driver: he is **released immediately** and asked to rate the rider, and the rider is notified. The trip stays `in_progress` until the rider confirms, so the rider is never able to book a second trip or dodge the dispute clock |
+| Dispute | Rider says No, or does not respond within `dispute_hours` (default 24) → trip `in_progress` → `disputed`. The scheduler opens a dispute help request and alerts the office either way, including the silence case where pg_cron can only flip the status |
 | Rating | Both directions, 1–5, after completion |
 | Fare check | Optional (setting, off by default in MVP): *"Ramesh quoted ₹70 — did you pay ₹70?"* Feeds quoted-vs-paid data |
 
@@ -261,7 +276,10 @@ opens a row in `help_requests` and the office sees it on **Admin → Help** with
 the last few messages and a *Mark handled* button. The bot's `disputed` message
 promises *"our office will call you"* — the queue is what makes that true. One
 open request per phone: a second "help" is the same person still waiting, not a
-duplicate.
+duplicate — but a **dispute escalates** an open help request to urgent, rather
+than being swallowed by it. A completion the rider never answered is disputed by
+pg_cron, which cannot send a message, so the Node scheduler opens the same
+dispute request on its next pass.
 
 **And the office is told.** A row in a queue nobody opens is not a feature. On
 each *newly opened* request the office number (`office_number`) gets a WhatsApp
@@ -349,7 +367,7 @@ The point of v1 is to learn, so instrumentation is part of the MVP, not a follow
 
 **One append-only `events` table.** Never `UPDATE`, never `DELETE`. `properties JSONB` means new fields need no migration. Inserts are fire-and-forget and never block the message path.
 
-Event types: `trip_created · lead_sent · lead_delivered · lead_read · lead_dispatch_failed · quote_received · quote_accepted · quote_withdrawn · trip_assigned · pickup_started · driver_arrived · otp_verified · done_marked · completed · drop_location_captured · help_requested · cancelled · expired · disputed · rated · fare_reported · user_deleted`
+Event types: `trip_created · lead_sent · lead_stage_sent · lead_delivered · lead_read · lead_dispatch_failed · quote_received · quote_accepted · quote_withdrawn · trip_assigned · pickup_started · driver_arrived · otp_verified · done_marked · completed · drop_location_captured · help_requested · cancelled · expired · disputed · dispute_resolved · rated · fare_reported · user_deleted`
 
 Timestamps are denormalised onto `trips` so the funnel is a single row scan: `created_at → first_quote_at → assigned_at → arrived_at → started_at → done_at → completed_at`.
 

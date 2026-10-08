@@ -12,6 +12,7 @@ import {
   ensureRider,
   getDriverByPhone,
   getRiderByPhone,
+  getRoleOverride,
   updateTrip,
   type Trip,
 } from '../state/queries';
@@ -124,7 +125,17 @@ function extractLocation(message: Record<string, unknown>): InboundLocation | un
   return undefined;
 }
 
-async function resolveRole(from: string): Promise<Session | null> {
+export async function resolveRole(from: string): Promise<Session | null> {
+  // An office override wins over everything, including an existing session and
+  // the tables, so a wrong Rider/Driver choice actually sticks.
+  const override = await getRoleOverride(from);
+  if (override) {
+    if (override === 'driver') await ensureDriver(from);
+    else await ensureRider(from);
+    await upsertSession(from, { state: 'idle', role: override });
+    return await getSession(from);
+  }
+
   const session = await getSession(from);
   if (session) return session;
 

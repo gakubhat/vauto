@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { getTrips } from './api';
+import { Notice, useApi } from './ui';
 
 interface Trip {
   id: string;
@@ -14,24 +15,49 @@ interface Trip {
 }
 
 const STATUSES = ['', 'open', 'assigned', 'arrived', 'in_progress', 'completed', 'cancelled', 'expired', 'disputed'];
+const PAGE_SIZE = 100;
 
 export function Trips() {
-  const [rows, setRows] = useState<Trip[]>([]);
-  const [status, setStatus] = useState('');
+  const [params, setParams] = useSearchParams();
+  const status = params.get('status') ?? '';
+  const q = params.get('q') ?? '';
+  const page = Math.max(1, Number(params.get('page') ?? 1) || 1);
+  const [qInput, setQInput] = useState(q);
+  useEffect(() => setQInput(q), [q]);
 
-  async function load() {
-    setRows((await getTrips(status ? `?status=${status}` : '')) as Trip[]);
+  const search = new URLSearchParams();
+  if (status) search.set('status', status);
+  if (q) search.set('q', q);
+  if (page > 1) search.set('page', String(page));
+
+  const { data: rows, error, loading, reload } = useApi<Trip[]>(
+    () => getTrips(`?${search.toString()}`) as Promise<Trip[]>,
+    [status, q, page],
+  );
+
+  function setParam(key: string, value: string) {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    if (key !== 'page') next.delete('page'); // any filter change resets to page 1
+    setParams(next);
   }
-
-  useEffect(() => {
-    void load();
-  }, [status]);
 
   return (
     <>
       <h1>Trips</h1>
       <div className="row">
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+        <input
+          placeholder="Trip number or rider name/phone"
+          value={qInput}
+          onChange={(e) => setQInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') setParam('q', qInput.trim());
+          }}
+          style={{ width: 280 }}
+        />
+        <button onClick={() => setParam('q', qInput.trim())}>Search</button>
+        <select value={status} onChange={(e) => setParam('status', e.target.value)}>
           {STATUSES.map((s) => (
             <option key={s} value={s}>
               {s || 'all statuses'}
@@ -39,30 +65,56 @@ export function Trips() {
           ))}
         </select>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Status</th>
-            <th>Distance</th>
-            <th>Quoted</th>
-            <th>Created</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((t) => (
-            <tr key={t.id}>
-              <td>
-                <Link to={`/trips/${t.id}`}>{t.trip_number}</Link>
-              </td>
-              <td>{t.status}</td>
-              <td>{t.distance_km ?? '—'}</td>
-              <td>{t.quoted_amount_paise ? `Rs ${Math.round(t.quoted_amount_paise / 100)}` : '—'}</td>
-              <td>{new Date(t.created_at).toLocaleString()}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+
+      <Notice error={error} loading={loading} onRetry={reload} />
+
+      {rows && (
+        <>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Status</th>
+                <th>Distance</th>
+                <th>Quoted</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((t) => (
+                <tr key={t.id}>
+                  <td>
+                    <Link to={`/trips/${t.id}`}>{t.trip_number}</Link>
+                  </td>
+                  <td>{t.status}</td>
+                  <td>{t.distance_km ?? '—'}</td>
+                  <td>{t.quoted_amount_paise ? `₹${Math.round(t.quoted_amount_paise / 100)}` : '—'}</td>
+                  <td>{new Date(t.created_at).toLocaleString()}</td>
+                </tr>
+              ))}
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="muted">
+                    No trips match these filters.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+          <div className="row">
+            <button disabled={page <= 1} onClick={() => setParam('page', String(page - 1))}>
+              ← Previous
+            </button>
+            <span className="muted">Page {page}</span>
+            <button
+              disabled={(rows.length ?? 0) < PAGE_SIZE}
+              onClick={() => setParam('page', String(page + 1))}
+            >
+              Next →
+            </button>
+          </div>
+        </>
+      )}
     </>
   );
 }

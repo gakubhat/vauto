@@ -66,6 +66,21 @@ describe('reciprocal number reveal', () => {
     expect(bodies.some((b) => b.includes(DRIVER_A_PHONE))).toBe(true);
   }, 60000);
 
+  it('shows a friendly status word, not the raw enum', async () => {
+    await seedRider();
+    await seedDriver(DRIVER_A_PHONE, { name: 'Ramesh', lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+    await postTrip();
+    await driverStep(DRIVER_A_PHONE, { text: '70' });
+    await riderStep({ text: findButtonId('accept_quote_', RIDER_PHONE) as string });
+
+    messageLog.length = 0;
+    await riderStep({ text: 'status' });
+
+    const body = bodiesTo(RIDER_PHONE).join('\n');
+    expect(body).toContain('assigned to a driver');
+    expect(body).not.toContain('Your trip is assigned.');
+  }, 60000);
+
   it('reveals nothing while the trip is still collecting quotes', async () => {
     await seedRider();
     await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });

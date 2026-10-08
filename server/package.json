@@ -8,6 +8,8 @@
     "build:all": "bash ../scripts/build-and-start.sh",
     "start": "node dist/index.js",
     "test": "vitest run",
+    "test:all": "RUN_DB_TESTS=1 vitest run",
+    "test:flows": "RUN_DB_TESTS=1 vitest run tests/flows",
     "test:watch": "vitest",
     "sim": "tsx src/dev/simulate.ts",
     "tunnel": "bash ../scripts/tunnel.sh",

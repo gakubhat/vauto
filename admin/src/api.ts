@@ -13,8 +13,18 @@ async function request(path: string, opts?: RequestInit) {
   if (res.status === 401) {
     sessionStorage.removeItem('token');
     window.location.reload();
+    throw new Error('Session expired');
   }
-  if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error ?? res.statusText);
+  if (!res.ok) {
+    // The server always answers /api/* with JSON, but never assume it.
+    let message = res.statusText;
+    try {
+      message = ((await res.json()) as { error?: string }).error ?? message;
+    } catch {
+      /* keep statusText */
+    }
+    throw new Error(message);
+  }
   return res.json();
 }
 
@@ -48,8 +58,12 @@ export const setApproval = (id: string, action: string) =>
   request(admin(`/drivers/${id}/approval`), { method: 'POST', body: JSON.stringify({ action }) });
 export const recordSubscription = (id: string, body: unknown) =>
   request(admin(`/drivers/${id}/subscription`), { method: 'POST', body: JSON.stringify(body) });
-export const overrideRole = (id: string, role: string) =>
+
+/** Force a phone onto one flow, or 'auto' to clear the override. */
+export const setDriverRole = (id: string, role: string) =>
   request(admin(`/drivers/${id}/role`), { method: 'POST', body: JSON.stringify({ role }) });
+export const setRiderRole = (id: string, role: string) =>
+  request(admin(`/riders/${id}/role`), { method: 'POST', body: JSON.stringify({ role }) });
 
 export const getRiders = (params = '') => request(admin(`/riders${params}`));
 export const getRider = (id: string) => request(admin(`/riders/${id}`));
@@ -58,11 +72,10 @@ export const patchRider = (id: string, body: unknown) =>
 
 export const getTrips = (params = '') => request(admin(`/trips${params}`));
 export const getTrip = (id: string) => request(admin(`/trips/${id}`));
-export const setTripStatus = (id: string, status: string, reason?: string) =>
-  request(admin(`/trips/${id}/status`), {
-    method: 'POST',
-    body: JSON.stringify({ status, reason }),
-  });
+export const setTripStatus = (
+  id: string,
+  body: { status: string; reason?: string; resolution_note?: string },
+) => request(admin(`/trips/${id}/status`), { method: 'POST', body: JSON.stringify(body) });
 
 export const getSessions = () => request(admin('/sessions'));
 export const resetSession = (phone: string, to: 'idle' | 'clear' = 'idle') =>
@@ -74,9 +87,11 @@ export const getRecover = (phone: string) => request(admin(`/recover/${encodeURI
 export const getHelpRequests = (openOnly = true) => request(admin(`/help${openOnly ? '?open=1' : ''}`));
 export const closeHelpRequest = (id: string) =>
   request(admin(`/help/${id}/close`), { method: 'POST' });
+export const reopenHelpRequest = (id: string) =>
+  request(admin(`/help/${id}/reopen`), { method: 'POST' });
 export const getSettings = () => request(admin('/settings'));
 export const putSettings = (body: unknown) =>
   request(admin('/settings'), { method: 'PUT', body: JSON.stringify(body) });
 export const getFunnel = () => request(admin('/analytics/funnel'));
-export const getDriverStats = () => request(admin('/analytics/drivers'));
-export const getAreas = () => request(admin('/analytics/areas'));
+export const getDriverStats = (days = 30) => request(admin(`/analytics/drivers?days=${days}`));
+export const getAreas = (days = 30) => request(admin(`/analytics/areas?days=${days}`));

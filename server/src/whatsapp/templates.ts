@@ -1,4 +1,13 @@
 import { formatRupees, type Paise } from '../lib/money';
+import {
+  dayDiff,
+  hourLabel,
+  istYmd,
+  slotLabel,
+  ymdKey,
+  type ScheduleSlot,
+  type Ymd,
+} from '../lib/schedule';
 import { t, type Lang } from './i18n';
 import type { Button, OutMessage } from './spec';
 
@@ -58,21 +67,73 @@ export function askName(lang: Lang): OutMessage {
   return { kind: 'text', body: t('ask_name', lang) };
 }
 
-/** End of signup: a Book button, since tapping beats typing for most users. */
+/** The three things a rider can do from a resting point. Tappable, not typed. */
+function riderMenuButtons(lang: Lang): Button[] {
+  return [
+    btn('book_auto', 'book_auto', lang),
+    btn('menu_help', 'help', lang),
+    btn('menu_language', 'language', lang),
+  ];
+}
+
+/** End of signup: clear next actions, no keyword to remember. */
 export function riderReady(lang: Lang): OutMessage {
   return {
     kind: 'buttons',
     body: t('rider_ready', lang),
-    buttons: [btn('book_auto', 'book_auto', lang)],
+    buttons: riderMenuButtons(lang),
   };
 }
 
-/** Closing message for a rider - same text, plus a way to start the next one. */
+/** Closing message for a rider - same menu, so the next action is always visible. */
 export function riderPostComplete(lang: Lang): OutMessage {
   return {
     kind: 'buttons',
     body: t('post_complete', lang),
-    buttons: [btn('book_auto', 'book_auto', lang)],
+    buttons: riderMenuButtons(lang),
+  };
+}
+
+/** Shown for any unrecognised idle input, so nobody has to learn keywords. */
+export function riderMenu(lang: Lang): OutMessage {
+  return {
+    kind: 'buttons',
+    body: t('rider_menu', lang),
+    buttons: riderMenuButtons(lang),
+  };
+}
+
+/**
+ * Options for the drop step. A location request cannot carry a reply button, so
+ * this is sent as a second bubble: an explicit "type it instead" path for people
+ * who don't realise a plain text reply works, plus Cancel.
+ */
+export function dropOptions(lang: Lang): OutMessage {
+  return {
+    kind: 'buttons',
+    body: t('drop_options', lang),
+    buttons: [
+      btn('type_drop', 'type_drop', lang),
+      btn('cancel_booking', 'cancel_booking', lang),
+    ],
+  };
+}
+
+/** After tapping "Type the destination": prompts for the typed area name. */
+export function askDropTyped(lang: Lang): OutMessage {
+  return { kind: 'text', body: t('ask_drop_typed', lang) };
+}
+
+/**
+ * A way out when a rider is stuck on the pickup step (typed instead of tapping
+ * the location button). Sent as a second bubble - a location request cannot
+ * carry a reply button.
+ */
+export function pickupOptions(lang: Lang): OutMessage {
+  return {
+    kind: 'buttons',
+    body: t('pickup_options', lang),
+    buttons: [btn('cancel_booking', 'cancel_booking', lang)],
   };
 }
 
@@ -100,6 +161,7 @@ export function tripConfirm(
   pickup: string,
   drop: string,
   distanceKm: number | null,
+  scheduling = false,
 ): OutMessage {
   return {
     kind: 'buttons',
@@ -108,20 +170,55 @@ export function tripConfirm(
       drop,
       distance: distanceKm != null ? t('confirm_distance', lang, { distance: distanceKm }) : '',
     }),
-    buttons: [btn('book_now', 'book_now', lang), btn('schedule', 'schedule', lang)],
+    // Scheduling is hidden while supply is thin - one clear action is better
+    // than two, and an unfulfilled scheduled trip costs more trust than it buys.
+    buttons: scheduling
+      ? [btn('book_now', 'book_now', lang), btn('schedule', 'schedule', lang), btn('cancel_booking', 'cancel_booking', lang)]
+      : [btn('book_now', 'book_now', lang), btn('cancel_booking', 'cancel_booking', lang)],
     footer: t('unknown_place', lang),
   };
 }
 
-export function scheduleDay(lang: Lang): OutMessage {
+/** Rolling 3-hour slots, each labelled with its day ("3–6 PM today"). */
+export function scheduleSlot(lang: Lang, slots: ScheduleSlot[], now: Date): OutMessage {
+  const today = istYmd(now);
   return {
-    kind: 'buttons',
-    body: t('schedule_day', lang),
-    buttons: [btn('today', 'day_today', lang), btn('tomorrow', 'day_tomorrow', lang)],
+    kind: 'list',
+    body: t('schedule_slot', lang),
+    button: t('choose_time', lang),
+    sections: [
+      {
+        title: t('choose_time', lang),
+        rows: slots.map((s) => ({
+          id: `slot_${ymdKey(s.ymd)}_${s.start}`,
+          title: `${slotLabel(s.start)} ${dayWord(today, s.ymd, lang)}`,
+        })),
+      },
+    ],
   };
 }
 
-export function scheduleHour(lang: Lang, hours: number[]): OutMessage {
+/** One day word for a slot/row label. Rolls at most into tomorrow. */
+function dayWord(today: Ymd, ymd: Ymd, lang: Lang): string {
+  return dayDiff(today, ymd) <= 0 ? t('today', lang) : t('tomorrow', lang);
+}
+
+/** Sent when an early-morning trip will be offered to drivers the evening before. */
+export function overnightNote(lang: Lang): OutMessage {
+  return { kind: 'text', body: t('schedule_overnight_note', lang) };
+}
+
+/** Sent shortly before an overnight pickup that still has no driver. */
+export function scheduleAtRisk(lang: Lang, time: string, phone: string): OutMessage {
+  return { kind: 'text', body: t('schedule_at_risk', lang, { time, phone }) };
+}
+
+/**
+ * The exact hours inside a chosen slot. One list, at most 3 rows, labelled in
+ * 12-hour form and carrying the day.
+ */
+export function scheduleHour(lang: Lang, ymd: Ymd, hours: number[], now: Date): OutMessage {
+  const word = dayWord(istYmd(now), ymd, lang);
   return {
     kind: 'list',
     body: t('schedule_hour', lang),
@@ -129,7 +226,10 @@ export function scheduleHour(lang: Lang, hours: number[]): OutMessage {
     sections: [
       {
         title: t('schedule_hour', lang),
-        rows: hours.map((h) => ({ id: `hour_${h}`, title: `${String(h).padStart(2, '0')}:00` })),
+        rows: hours.map((h) => ({
+          id: `hour_${ymdKey(ymd)}_${h}`,
+          title: `${hourLabel(h)} ${word}`,
+        })),
       },
     ],
   };
@@ -212,6 +312,23 @@ export function noQuotes(lang: Lang, tripId: string): OutMessage {
   };
 }
 
+/** The rider had quotes and a deadline to pick, and did not. */
+export function pickTimeout(lang: Lang, tripId: string): OutMessage {
+  return {
+    kind: 'buttons',
+    body: t('pick_timeout', lang),
+    buttons: [
+      btn('try_again', `retry_${tripId}`, lang),
+      btn('change_details', `change_trip_${tripId}`, lang),
+    ],
+  };
+}
+
+/** A rider's chosen driver was taken by another rider first. */
+export function driverTaken(lang: Lang): OutMessage {
+  return { kind: 'text', body: t('driver_taken', lang) };
+}
+
 /** Nobody was even notified - distinct from "notified but nobody quoted". */
 export function noCover(lang: Lang, tripId: string): OutMessage {
   return {
@@ -251,7 +368,9 @@ export function completionConfirm(lang: Lang, name: string): OutMessage {
   return {
     kind: 'buttons',
     body: t('done_confirm', lang, { name }),
-    buttons: [btn('yes', 'confirm_yes', lang), btn('no', 'confirm_no', lang)],
+    // Positive action last: in a chat people tend to tap the bottom button,
+    // so Yes belongs under No rather than above it.
+    buttons: [btn('no', 'confirm_no', lang), btn('yes', 'confirm_yes', lang)],
   };
 }
 
@@ -289,6 +408,10 @@ export function fareCheck(lang: Lang, name: string, amountPaise: Paise): OutMess
 
 export function disputed(lang: Lang, phone: string): OutMessage {
   return { kind: 'text', body: t('disputed', lang, { phone }) };
+}
+
+export function disputeResolved(lang: Lang): OutMessage {
+  return { kind: 'text', body: t('dispute_resolved', lang) };
 }
 
 /** Answer to "help". Always replies - a helpline that stays silent is worse
@@ -370,10 +493,6 @@ export function cancelConfirm(lang: Lang): OutMessage {
     body: t('cancel_confirm', lang),
     buttons: [btn('yes', 'cancel_yes', lang), btn('no', 'cancel_no', lang)],
   };
-}
-
-export function riderHelp(lang: Lang): OutMessage {
-  return { kind: 'text', body: t('rider_help', lang) };
 }
 
 // ─────────────────────────── Driver ───────────────────────────
@@ -531,6 +650,14 @@ export function youGotTrip(
   };
 }
 
+/**
+ * After a driver wins a ride, his other pending quotes were withdrawn (he can
+ * only be on one ride). Said plainly so the vanished rides are not a mystery.
+ */
+export function otherQuotesWithdrawn(lang: Lang): OutMessage {
+  return { kind: 'text', body: t('other_quotes_withdrawn', lang) };
+}
+
 export function askStart(lang: Lang, tripId: string): OutMessage {
   return {
     kind: 'buttons',
@@ -587,10 +714,6 @@ export function askDone(lang: Lang): OutMessage {
   };
 }
 
-export function doneRecorded(lang: Lang): OutMessage {
-  return { kind: 'text', body: t('done_recorded', lang) };
-}
-
 export function rateRider(lang: Lang, rider: string): OutMessage {
   return {
     kind: 'buttons',
@@ -630,13 +753,17 @@ export function driverHelp(lang: Lang): OutMessage {
   return { kind: 'text', body: t('driver_help', lang) };
 }
 
-/** A driver said hello, from idle. Tells the truth about whether they have work. */
-export function driverHail(lang: Lang, openTrips: number): OutMessage {
+/** A driver at rest: the same menu idea as the rider, with a way to see open trips. */
+export function driverMenu(lang: Lang, openTrips: number): OutMessage {
+  const buttons: Button[] = [];
+  if (openTrips > 0) buttons.push(btn('see_trips', 'see_trips', lang));
+  buttons.push(btn('menu_help', 'help', lang), btn('menu_language', 'language', lang));
   return {
-    kind: 'text',
+    kind: 'buttons',
     body:
       openTrips > 0
-        ? t('driver_hail_waiting', lang, { n: openTrips })
-        : t('driver_hail', lang),
+        ? t('driver_menu_open', lang, { n: openTrips })
+        : t('driver_menu_none', lang),
+    buttons,
   };
 }

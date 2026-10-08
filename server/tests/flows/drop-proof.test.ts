@@ -11,6 +11,7 @@ import {
   messageLog,
   postTrip,
   riderStep,
+  riderStepAs,
   seedDriver,
   seedRider,
   setFareCheck,
@@ -18,6 +19,8 @@ import {
   stateOf,
   truncateAll,
 } from '../engine';
+
+const RIDER_2_PHONE = '+919999000008';
 
 beforeAll(async () => {
   setupMockSendMessage();
@@ -133,5 +136,68 @@ describe('drop location is never a pin', () => {
     await riderStep({ text: 'confirm_yes' });
 
     expect((await stateOf(RIDER_PHONE))?.state).toBe('awaiting_rating');
+  }, 60000);
+
+  it('frees the driver at DONE, before the rider answers', async () => {
+    await seedRider();
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+    const tripId = await postTrip();
+    await completeRide(tripId);
+
+    // The driver has finished; the trip is still awaiting the rider, who stays
+    // blocked from booking again until they answer or the dispute clock runs.
+    const trip = await getTrip(tripId);
+    expect(trip?.status).toBe('in_progress');
+    expect(trip?.done_at).toBeTruthy();
+    expect((await stateOf(DRIVER_A_PHONE))?.state).toBe('awaiting_rider_rating');
+
+    // A second rider can hire him right now, even though the first trip has not
+    // been confirmed: the driver index and matching must ignore a finished trip.
+    await seedRider(RIDER_2_PHONE, 'Gita');
+    await riderStepAs(RIDER_2_PHONE, { text: 'auto' });
+    await riderStepAs(RIDER_2_PHONE, { location: PICKUP });
+    await riderStepAs(RIDER_2_PHONE, { location: DROP });
+    await riderStepAs(RIDER_2_PHONE, { text: 'book_now' });
+
+    expect(findButtonId('quote_', DRIVER_A_PHONE)).toBeTruthy();
+    await driverStep(DRIVER_A_PHONE, { text: '80' });
+    const accept = findButtonId('accept_quote_', RIDER_2_PHONE) as string;
+    expect(accept).toBeTruthy();
+    await riderStepAs(RIDER_2_PHONE, { text: accept });
+
+    const second = (await stateOf(RIDER_2_PHONE))?.data?.pending_trip_id as string;
+    expect((await getTrip(second))?.status).toBe('assigned');
+    expect((await getTrip(second))?.driver_id).toBeTruthy();
+  }, 60000);
+
+  it('releases a disputed driver back into the matching pool', async () => {
+    await seedRider();
+    await seedDriver(DRIVER_A_PHONE, { lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+    const tripId = await postTrip();
+    await completeRide(tripId);
+
+    await riderStep({ text: 'confirm_no' });
+    expect((await getTrip(tripId))?.status).toBe('disputed');
+
+    // The ride is over and the dispute is between the rider and the office, so
+    // the driver must be matched again and able to take a new trip - not held
+    // out of the pool (or frozen by the unique index) until the office rules.
+    await seedRider(RIDER_2_PHONE, 'Gita');
+    await riderStepAs(RIDER_2_PHONE, { text: 'auto' });
+    await riderStepAs(RIDER_2_PHONE, { location: PICKUP });
+    await riderStepAs(RIDER_2_PHONE, { location: DROP });
+    await riderStepAs(RIDER_2_PHONE, { text: 'book_now' });
+
+    expect(findButtonId('quote_', DRIVER_A_PHONE)).toBeTruthy();
+    await driverStep(DRIVER_A_PHONE, { text: '80' });
+    const accept = findButtonId('accept_quote_', RIDER_2_PHONE) as string;
+    expect(accept).toBeTruthy();
+    await riderStepAs(RIDER_2_PHONE, { text: accept });
+
+    const second = (await stateOf(RIDER_2_PHONE))?.data?.pending_trip_id as string;
+    expect((await getTrip(second))?.status).toBe('assigned');
+    expect((await getTrip(second))?.driver_id).toBeTruthy();
+    // The driver quoted and moved on; nothing left him in a dead trip state.
+    expect((await stateOf(DRIVER_A_PHONE))?.state).toBe('idle');
   }, 60000);
 });

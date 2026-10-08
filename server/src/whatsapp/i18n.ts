@@ -25,12 +25,18 @@ const T: Record<string, Entry> = {
   // coordinates. No "or type it" here - that is what left riders and drivers
   // invisible to each other.
   location_hint_select: {
-    en: 'Tap the button below and select your location.',
-    kn: 'ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ ನಿಮ್ಮ ಲೊಕೇಶನ್ ಆಯ್ಕೆ ಮಾಡಿ.',
+    en: 'Tap the button below to share your location.',
+    kn: 'ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ ನಿಮ್ಮ ಲೊಕೇಶನ್ ಹಂಚಿಕೊಳ್ಳಿ.',
   },
+  // The re-prompt after a typed pickup. Deliberately different from the first
+  // prompt: an identical re-send looks like the bot did not hear them.
   need_location: {
-    en: 'Please tap the button below and select your location.',
-    kn: 'ದಯವಿಟ್ಟು ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ ನಿಮ್ಮ ಲೊಕೇಶನ್ ಆಯ್ಕೆ ಮಾಡಿ.',
+    en: "Your auto needs your exact spot so a nearby driver can find you. Tap the button below to share it - typing the area name won't work here.",
+    kn: 'ನಿಮ್ಮ ಆಟೋ ಸಿಗಲು ನಿಮ್ಮ ನಿಖರವಾದ ಸ್ಥಳ ಬೇಕು. ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ ಅದನ್ನು ಹಂಚಿಕೊಳ್ಳಿ - ಸ್ಥಳದ ಹೆಸರು ಟೈಪ್ ಮಾಡಿದರೆ ಆಗುವುದಿಲ್ಲ.',
+  },
+  pickup_options: {
+    en: 'Stuck? You can cancel this booking.',
+    kn: 'ಸಮಸ್ಯೆಯೇ? ಈ ಬುಕಿಂಗ್ ಅನ್ನು ರದ್ದುಮಾಡಬಹುದು.',
   },
   need_base_location: {
     en: 'Please tap the button below and select where you wait.',
@@ -48,10 +54,13 @@ const T: Record<string, Entry> = {
   // Rider signup
   ask_name: { en: "What's your name?", kn: 'ನಿಮ್ಮ ಹೆಸರು ಏನು?' },
   rider_ready: {
-    en: 'You are all set! Tap "Book" to book an auto, or just say hi anytime.',
-    kn: 'ಎಲ್ಲ ಸಿದ್ಧವಾಗಿದೆ! ಆಟೋ ಬುಕ್ ಮಾಡಲು "ಬುಕ್" ಒತ್ತಿ, ಅಥವಾ ಯಾವಾಗ ಬೇಕಾದರೂ ಹಾಯ್/hi ಹೇಳಿ.',
+    en: 'You are all set! Tap below to book an auto whenever you need one.',
+    kn: 'ಎಲ್ಲ ಸಿದ್ಧವಾಗಿದೆ! ಆಟೋ ಬೇಕಾದಾಗ ಕೆಳಗಿನ ಬಟನ್ ಒತ್ತಿ.',
   },
   book_auto: { en: 'Book an auto', kn: 'ಆಟೋ ಬುಕ್ ಮಾಡಿ' },
+  rider_menu: { en: 'What would you like to do?', kn: 'ನೀವು ಏನು ಮಾಡಲು ಬಯಸುತ್ತೀರಿ?' },
+  menu_help: { en: 'Help', kn: 'ಸಹಾಯ' },
+  menu_language: { en: 'Language', kn: 'ಭಾಷೆ' },
 
   // Rider booking
   ask_pickup: {
@@ -62,19 +71,38 @@ const T: Record<string, Entry> = {
     en: 'Where are you going?',
     kn: 'ನೀವು ಎಲ್ಲಿಗೆ ಹೋಗುತ್ತೀದ್ದೀರಾ?',
   },
+  drop_options: {
+    en: "Can't pick it on the map? Type the area name instead.",
+    kn: 'ನಕ್ಷೆಯಲ್ಲಿ ಆಯ್ಕೆ ಮಾಡಲು ಆಗುತ್ತಿಲ್ಲವೇ? ಸ್ಥಳದ ಹೆಸರು ಟೈಪ್ ಮಾಡಿ.',
+  },
+  type_drop: { en: 'Type the destination', kn: 'ಗಮ್ಯಸ್ಥಾನ ಟೈಪ್ ಮಾಡಿ' },
+  ask_drop_typed: {
+    en: 'Type the area name, e.g. Bus stand.',
+    kn: 'ಸ್ಥಳದ ಹೆಸರು ಟೈಪ್ ಮಾಡಿ, ಉದಾ ಬಸ್ ಸ್ಟ್ಯಾಂಡ್.',
+  },
   confirm_card: {
     en: '*From*\n{pickup}\n\n*To*\n{drop}{distance}',
     kn: '*ಇಂದ*\n{pickup}\n\n*ಗೆ*\n{drop}{distance}',
   },
   confirm_distance: { en: '\n\n_About {distance}_', kn: '\n\n_ಸುಮಾರು {distance}_' },
   book_now: { en: 'Book now', kn: 'ಈಗಲೇ ಬುಕ್ ಮಾಡಿ' },
-  schedule: { en: 'Schedule', kn: 'ಮುಂಚಿತವಾಗಿ ಬುಕ್ ಮಾಡಿ' },
+  cancel_booking: { en: 'Cancel booking', kn: 'ಬುಕಿಂಗ್ ರದ್ದುಮಾಡಿ' },
+  schedule: { en: 'Schedule', kn: 'ಮುಂಗಡವಾಗಿ ಬುಕ್ ಮಾಡಿ' },
   change_pickup: { en: 'Change pickup', kn: 'ಪಿಕಪ್ ಬದಲಿಸಿ' },
   change_drop: { en: 'Change drop', kn: 'ಗಮ್ಯ ಬದಲಿಸಿ' },
-  schedule_day: { en: 'Which day?', kn: 'ಯಾವ ದಿನ?' },
-  today: { en: 'Today', kn: 'ಇಂದು' },
-  tomorrow: { en: 'Tomorrow', kn: 'ನಾಳೆ' },
+  schedule_slot: { en: 'When should the auto come?', kn: 'ಆಟೋ ಯಾವಾಗ ಬರಬೇಕು?' },
+  choose_time: { en: 'Choose time', kn: 'ಸಮಯ ಆಯ್ಕೆಮಾಡಿ' },
+  today: { en: 'today', kn: 'ಇಂದು' },
+  tomorrow: { en: 'tomorrow', kn: 'ನಾಳೆ' },
   schedule_hour: { en: 'What time?', kn: 'ಯಾವ ಸಮಯ?' },
+  schedule_overnight_note: {
+    en: "Early-morning pickup. We'll offer this to drivers tonight — a driver isn't guaranteed, so please keep a backup. We'll tell you if nobody takes it.",
+    kn: 'ಮುಂಜಾನೆ ಪ್ರಯಾಣ. ಇಂದು ರಾತ್ರಿಯೇ ಚಾಲಕರಿಗೆ ತಿಳಿಸುತ್ತೇವೆ — ಚಾಲಕ ಸಿಗುವುದು ಖಚಿತವಲ್ಲ, ದಯವಿಟ್ಟು ಪರ್ಯಾಯ ವ್ಯವಸ್ಥೆ ಇಟ್ಟುಕೊಳ್ಳಿ. ಯಾರೂ ತೆಗೆದುಕೊಳ್ಳದಿದ್ದರೆ ನಾವು ತಿಳಿಸುತ್ತೇವೆ.',
+  },
+  schedule_at_risk: {
+    en: 'No driver has taken your {time} pickup yet. Please arrange another way to get there, or call us: {phone}.',
+    kn: 'ನಿಮ್ಮ {time} ಪ್ರಯಾಣವನ್ನು ಇನ್ನೂ ಯಾವ ಚಾಲಕರೂ ತೆಗೆದುಕೊಂಡಿಲ್ಲ. ದಯವಿಟ್ಟು ಬೇರೆ ವ್ಯವಸ್ಥೆ ಮಾಡಿಕೊಳ್ಳಿ, ಅಥವಾ ನಮಗೆ ಕರೆ ಮಾಡಿ: {phone}.',
+  },
   unknown_place: { en: 'Somewhere nearby', kn: 'ಹತ್ತಿರದಲ್ಲಿ ಎಲ್ಲೋ' },
 
   // Quotes
@@ -117,6 +145,10 @@ const T: Record<string, Entry> = {
     en: 'No autos responded this time.',
     kn: 'ಈ ಬಾರಿ ಯಾವ ಆಟೋವೂ ಉತ್ತರಿಸಲಿಲ್ಲ.',
   },
+  pick_timeout: {
+    en: "We didn't hear back in time, so this trip was closed. Tap below to try again.",
+    kn: 'ಸಮಯಕ್ಕೆ ಉತ್ತರ ಬರಲಿಲ್ಲ, ಹಾಗಾಗಿ ಈ ಪ್ರಯಾಣ ಮುಚ್ಚಲಾಗಿದೆ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲು ಕೆಳಗೆ ಒತ್ತಿ.',
+  },
   try_again: { en: 'Try again', kn: 'ಪುನಃ ಪ್ರಯತ್ನಿಸಿ' },
   change_details: { en: 'Change details', kn: 'ವಿವರ ಬದಲಿಸಿ' },
 
@@ -137,6 +169,10 @@ const T: Record<string, Entry> = {
   disputed: {
     en: 'Marked as disputed. Our office will call you. To reach us now, call: {phone}',
     kn: 'ವಿವಾದಿತ ಎಂದು ಗುರುತಿಸಲಾಗಿದೆ. ನಮ್ಮ ಕಛೇರಿಯಿಂದ ಕರೆ ಬರುತ್ತದೆ. ಈಗಲೇ ಸಂಪರ್ಕಿಸಲು ಕರೆ ಮಾಡಿ: {phone}',
+  },
+  dispute_resolved: {
+    en: 'Our office has reviewed your trip and closed it. You can book again whenever you like. Thanks for your patience.',
+    kn: 'ನಮ್ಮ ಕಛೇರಿ ನಿಮ್ಮ ಪ್ರಯಾಣವನ್ನು ಪರಿಶೀಲಿಸಿ ಮುಚ್ಚಿದೆ. ನೀವು ಯಾವಾಗ ಬೇಕಾದರೂ ಮತ್ತೆ ಬುಕ್ ಮಾಡಬಹುದು. ತಾಳ್ಮೆಗೆ ಧನ್ಯವಾದ.',
   },
   // Optional, after the ride: fills in the drop coordinates a typed
   // destination left out. Never blocks the trip.
@@ -165,11 +201,12 @@ const T: Record<string, Entry> = {
     en: 'Your trip is {status}. {name} - {vehicle}. Call: {phone}',
     kn: 'ನಿಮ್ಮ ಪ್ರಯಾಣ {status}. {name} - {vehicle}. ಕರೆ ಮಾಡಿ: {phone}',
   },
+  trip_status_open: { en: 'being booked', kn: 'ಬುಕ್ ಆಗುತ್ತಿದೆ' },
+  trip_status_assigned: { en: 'assigned to a driver', kn: 'ಚಾಲಕರಿಗೆ ನಿಗದಿಯಾಗಿದೆ' },
+  trip_status_arrived: { en: 'waiting for your pickup code', kn: 'ನಿಮ್ಮ ಕೋಡ್ಗಾಗಿ ಕಾಯುತ್ತಿದೆ' },
+  trip_status_in_progress: { en: 'in progress', kn: 'ನಡೆಯುತ್ತಿದೆ' },
+  trip_status_disputed: { en: 'disputed', kn: 'ವಿವಾದಿತ' },
   no_active_trip: { en: 'You have no active trip.', kn: 'ಯಾವುದೇ ಪ್ರಯಾಣ ಚಾಲ್ತಿಯಲ್ಲಿ ಇಲ್ಲ.' },
-  rider_help: {
-    en: 'Send "auto" to book, "status" to see your trip, "language" to switch, or "help" to call us.',
-    kn: '"ಆಟೋ" ಬುಕ್ ಮಾಡಲು, "ಸ್ಥಿತಿ" ಪ್ರಯಾಣ ನೋಡಲು, "ಭಾಷೆ" ಬದಲಿಸಲು, "ಸಹಾಯ" ನಮಗೆ ಕರೆ ಮಾಡಲು ಕಳುಹಿಸಿ.',
-  },
   help_reply: {
     en: 'Need help? Call us: {phone}. We are happy to help.',
     kn: 'ಸಹಾಯ ಬೇಕೇ? ನಮಗೆ ಕರೆ ಮಾಡಿ: {phone}. ನಾವು ಸಹಾಯ ಮಾಡುತ್ತೇವೆ.',
@@ -197,8 +234,8 @@ const T: Record<string, Entry> = {
     kn: 'ದಾಖಲೆಗಳು ಪರಿಶೀಲನೆಗೆ ಕಳುಹಿಸಲಾಗಿದೆ. ಪರಿಶೀಲನೆಯಾದ ಮೇಲೆ ಸಂದೇಶ ಬರುತ್ತದೆ.',
   },
   pending_approval: {
-    en: 'Your details are with us. Trips will start once you are verified.',
-    kn: 'ನಿಮ್ಮ ವಿವರಗಳು ನಮ್ಮಲ್ಲಿವೆ. ಪರಿಶೀಲನೆಯಾದ ಮೇಲೆ ಪ್ರಯಾಣಗಳು ಬರುತ್ತವೆ.',
+    en: 'Your details are with us. Trips will start once you are verified.\n\nWe share leads among drivers near you, and riders pick based on your price, rating and how fast you reply - so quote promptly. We cannot promise every lead becomes a ride.',
+    kn: 'ನಿಮ್ಮ ವಿವರಗಳು ನಮ್ಮಲ್ಲಿವೆ. ಪರಿಶೀಲನೆಯಾದ ಮೇಲೆ ಪ್ರಯಾಣಗಳು ಬರುತ್ತವೆ.\n\nನಿಮ್ಮ ಹತ್ತಿರದ ಚಾಲಕರ ನಡುವೆ ಲೀಡ್‌ಗಳನ್ನು ಹಂಚುತ್ತೇವೆ; ಪ್ರಯಾಣಿಕರು ನಿಮ್ಮ ಬೆಲೆ, ರೇಟಿಂಗ್ ಮತ್ತು ಎಷ್ಟು ಬೇಗ ಉತ್ತರಿಸುತ್ತೀರಿ ಎಂಬುದರ ಆಧಾರದ ಮೇಲೆ ಆಯ್ಕೆ ಮಾಡುತ್ತಾರೆ - ಆದ್ದರಿಂದ ಬೇಗ ಬೆಲೆ ಕಳುಹಿಸಿ. ಪ್ರತಿ ಲೀಡ್ ಪ್ರಯಾಣವಾಗುತ್ತದೆ ಎಂದು ಭರವಸೆ ನೀಡಲಾಗುವುದಿಲ್ಲ.',
   },
   kyc_need_image: { en: 'Please send a photo, or tap Skip.', kn: 'ದಯವಿಟ್ಟು ಫೋಟೋ ಕಳುಹಿಸಿ, ಅಥವಾ ಬಿಡಿ ಒತ್ತಿರಿ.' },
   kyc_upload_failed: {
@@ -243,6 +280,10 @@ const T: Record<string, Entry> = {
     kn: 'ಈ ಪ್ರಯಾಣಕ್ಕೆ ನೀವು ಈಗಾಗಲೇ {amount} ಹೇಳಿದ್ದೀರಿ.',
   },
   trip_taken: { en: 'That trip was already taken.', kn: 'ಆ ಪ್ರಯಾಣ ಈಗಾಗಲೇ ಮುಗಿದಿದೆ.' },
+  driver_taken: {
+    en: 'That auto just took another ride. Here are your other quotes.',
+    kn: 'ಆ ಆಟೋ ಬೇರೆ ಪ್ರಯಾಣ ತೆಗೆದುಕೊಂಡಿತು. ನಿಮ್ಮ ಇತರ ಬೆಲೆಗಳು ಇಲ್ಲಿವೆ.',
+  },
   trip_expired: {
     en: 'That trip is no longer available - the rider stopped waiting.',
     kn: 'ಆ ಪ್ರಯಾಣ ಈಗ ಲಭ್ಯವಿಲ್ಲ - ಪ್ರಯಾಣಿಕರು ಕಾಯುವುದನ್ನು ನಿಲ್ಲಿಸಿದರು.',
@@ -254,6 +295,10 @@ const T: Record<string, Entry> = {
   you_got_trip: {
     en: '*You got the trip* - {amount}\n\n*Rider* {rider}\n*Call* {phone}\n\n*Pickup*\n{pickup}',
     kn: '*ಪ್ರಯಾಣ ಸಿಕ್ಕಿತು* - {amount}\n\n*ಪ್ರಯಾಣಿಕ* {rider}\n*ಕರೆ* {phone}\n\n*ಪಿಕಪ್*\n{pickup}',
+  },
+  other_quotes_withdrawn: {
+    en: 'Your other quotes were withdrawn - you can only be on one ride at a time.',
+    kn: 'ನಿಮ್ಮ ಇತರ ಬೆಲೆಗಳನ್ನು ಹಿಂಪಡೆಯಲಾಗಿದೆ - ಒಂದು ಸಮಯಕ್ಕೆ ಒಂದು ಪ್ರಯಾಣ ಮಾತ್ರ ಮಾಡಬಹುದು.',
   },
   start_btn: { en: 'I am on the way', kn: 'ಹೊರಟಿದ್ದೇನೆ' },
   start_hint: {
@@ -281,7 +326,6 @@ const T: Record<string, Entry> = {
     kn: 'ತುಂಬಾ ತಪ್ಪಾದ ಕೋಡ್‌ಗಳು. ದಯವಿಟ್ಟು ಕಚೇರಿಗೆ ಕರೆ ಮಾಡಿ. ನಮಗೆ ಕರೆ ಮಾಡಿ: {phone}',
   },
   ask_done: { en: 'Send DONE when you drop the rider.', kn: 'ಪ್ರಯಾಣಿಕರನ್ನು ಬಿಟ್ಟ ಮೇಲೆ DONE ಕಳುಹಿಸಿ.' },
-  done_recorded: { en: 'Noted. Waiting for the rider to confirm.', kn: 'ಗುರುತಿಸಲಾಗಿದೆ. ಪ್ರಯಾಣಿಕರ ದೃಢೀಕರಣಕ್ಕೆ ಕಾಯಲಾಗುತ್ತಿದೆ.' },
   rate_rider: { en: 'Rate {rider} - how was the trip?', kn: '{rider} ಗೆ ರೇಟಿಂಗ್ - ಪ್ರಯಾಣ ಹೇಗಿತ್ತು?' },
   cancel_reason_prompt: {
     en: 'Sorry about that. Why are you cancelling?',
@@ -332,24 +376,19 @@ const T: Record<string, Entry> = {
     kn: 'ಬೆಲೆ ಹೇಳಲು ಸಂಖ್ಯೆ ಕಳುಹಿಸಿ. ಕಾಯುವ ಸ್ಥಳ ಬದಲಿಸಲು ಲೊಕೇಶನ್ ಕಳುಹಿಸಿ. ನಮಗೆ ಕರೆ ಮಾಡಲು "ಸಹಾಯ" ಅಥವಾ "help" ಎಂದು ಕಳುಹಿಸಿ.',
   },
   /**
-   * A driver said hello. Distinct from `driver_help`, which is the catch-all -
-   * that one told a driver with no trips to "reply with a number to quote",
-   * which is something he cannot do.
+   * Menu bodies for a driver at rest. Distinct from `driver_help`, which is the
+   * catch-all: that one leads with "reply with a number to quote", which is
+   * unactionable when no trip is open.
    */
-  driver_hail: {
-    en: 'Namaskara! You are all set. We will message you here the moment a trip comes up near you - then just reply with your price.',
-    kn: 'ನಮಸ್ಕಾರ! ನೀವು ಸಿದ್ಧವಾಗಿದ್ದಿರ. ನಿಮ್ಮ ಹತ್ತಿರ ಪ್ರಯಾಣ ಬಂದ ಕೂಡಲೇ ಇಲ್ಲಿ ಸಂದೇಶ ಕಳುಹಿಸುತ್ತೇವೆ - ಆಗ ನಿಮ್ಮ ಬೆಲೆ ಕಳುಹಿಸಿ.',
+  driver_menu_none: {
+    en: 'Namaskara! You are all set. No trips right now - we will message you the moment one comes up near you.',
+    kn: 'ನಮಸ್ಕಾರ! ನೀವು ಸಿದ್ಧರಿದ್ದೀರಿ. ಈಗ ಯಾವುದೇ ಪ್ರಯಾಣ ಇಲ್ಲ - ನಿಮ್ಮ ಹತ್ತಿರ ಪ್ರಯಾಣ ಬಂದಾಗ ಇಲ್ಲಿ ಸಂದೇಶ ಕಳುಹಿಸುತ್ತೇವೆ.',
   },
-  driver_hail_waiting: {
-    en: 'Namaskara! You have {n} trip(s) open right now - reply with your price, like 70.',
-    kn: 'ನಮಸ್ಕಾರ! ಈಗ {n} ಪ್ರಯಾಣ ಕಾಯುತ್ತಿದೆ - ನಿಮ್ಮ ಬೆಲೆ ಕಳುಹಿಸಿ, ಉದಾ 70.',
+  driver_menu_open: {
+    en: 'You have {n} trip(s) open right now.',
+    kn: 'ಈಗ {n} ಪ್ರಯಾಣ ಕಾಯುತ್ತಿದೆ.',
   },
-  // Catch-all when no trip is open to the driver. driver_help leads with
-  // "reply with a number to quote", which is unactionable without a trip.
-  driver_unknown: {
-    en: 'Sorry, I did not understand that. Send "language" to switch language, your location to update where you wait, or "help" to call us.',
-    kn: 'ಕ್ಷಮಿಸಿ, ಅದು ಅರ್ಥವಾಗಲಿಲ್ಲ. ಭಾಷೆ ಬದಲಿಸಲು "ಭಾಷೆ" ಕಳುಹಿಸಿ, ಕಾಯುವ ಸ್ಥಳ ಬದಲಿಸಲು ನಿಮ್ಮ ಲೊಕೇಶನ್ ಕಳುಹಿಸಿ, ಅಥವಾ ನಮಗೆ ಕರೆ ಮಾಡಲು "ಸಹಾಯ" ಎಂದು ಕಳುಹಿಸಿ.',
-  },
+  see_trips: { en: 'See trips', kn: 'ಪ್ರಯಾಣ ನೋಡಿ' },
 };
 
 export function t(key: string, lang: Lang, vars: Record<string, string | number> = {}): string {

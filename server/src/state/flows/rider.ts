@@ -4,11 +4,12 @@ import { recordEvent } from '../../lib/events';
 import { estimateRoadKm } from '../../lib/geo';
 import { resolveAddress } from '../../lib/geocode';
 import { send } from '../../lib/send';
-import { dispatchLeads, noCoverExpire, placeLabel, sendRiderQuoteList } from '../../lib/matching';
+import { closeQuoteWindow, dispatchLeads, noCoverExpire, placeLabel, quoteWindowClosed, reopenTrip, sendRiderQuoteList } from '../../lib/matching';
 import { openHelpRequest } from '../../lib/help';
 import { handleHelpRequest, isHelpRequest } from '../../lib/help-command';
 import { langOf, t, type Lang } from '../../whatsapp/i18n';
 import * as tpl from '../../whatsapp/templates';
+import { istInstant, needsEarlyNotice, nextSlots, slotsForDay, type LeadPlan, type Ymd } from '../../lib/schedule';
 import {
   ensureRider,
   getActiveTripForRider,
@@ -25,8 +26,6 @@ export interface RiderInput {
   location?: { lat: number; lng: number; name?: string; address?: string };
 }
 
-const ACTIVE = ['open', 'assigned', 'arrived', 'in_progress', 'disputed'];
-
 async function sendR(
   phone: string,
   msg: Parameters<typeof send>[2],
@@ -34,6 +33,11 @@ async function sendR(
   tripId?: string | null,
 ): Promise<void> {
   await send(phone, 'rider', msg, { sessionState: state, tripId: tripId ?? null });
+}
+
+/** Friendly, translated trip status - never the raw database enum. */
+function statusWord(status: string, lang: Lang): string {
+  return t(`trip_status_${status}`, lang);
 }
 
 /** After a completed ride: the fare check if enabled, then the rating. Reached
@@ -78,10 +82,20 @@ async function recordRating(
   recordEvent('rated', { actorRole: byRole, actorId: targetId, tripId, properties: { stars } });
 }
 
-function hoursList(): number[] {
-  const out: number[] = [];
-  for (let h = 6; h <= 22; h++) out.push(h);
-  return out;
+/** `slot_20261003_15` / `hour_20261003_15` -> the IST date part. */
+function ymdFromMatch(m: RegExpExecArray): Ymd {
+  return { y: Number(m[1]), mo: Number(m[2]) - 1, d: Number(m[3]) };
+}
+
+/** The lead-time / quiet-window plan from current settings. */
+async function leadPlan(): Promise<LeadPlan> {
+  const s = await getSettings();
+  return {
+    leadHours: s.scheduled_lead_hours,
+    quietStart: s.quiet_hours_start,
+    quietEnd: s.quiet_hours_end,
+    eveningHour: s.evening_dispatch_hour,
+  };
 }
 
 
@@ -213,7 +227,13 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
     // Pickup must be a real location: matching runs on coordinates, so a typed
     // name would leave the rider invisible to every driver in range.
     if (!input.location) {
-      return sendR(phone, tpl.needLocation(lang), 'awaiting_pickup_location');
+      if (text === 'cancel_booking' || text.toLowerCase() === 'cancel') {
+        await resetSession(phone, { state: 'idle', role: 'rider' });
+        return sendR(phone, tpl.riderMenu(lang), 'idle');
+      }
+      // Typed instead of tapping the button: say why, and offer a way out.
+      await sendR(phone, tpl.needLocation(lang), 'awaiting_pickup_location');
+      return sendR(phone, tpl.pickupOptions(lang), 'awaiting_pickup_location');
     }
     const address = await resolveAddress(input.location.lat, input.location.lng, input.location);
     await upsertSession(phone, {
@@ -224,10 +244,19 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
         ...(address ? { pickup_text: address } : {}),
       },
     });
-    return sendR(phone, tpl.askDrop(lang), 'awaiting_drop_location');
+    return sendDropPrompt(phone, lang);
   }
 
   if (state === 'awaiting_drop_location') {
+    // Explicit "type it instead" path for riders who don't realise text works.
+    if (text === 'type_drop') {
+      return sendR(phone, tpl.askDropTyped(lang), 'awaiting_drop_location');
+    }
+    // One-tap escape: a wrong pickup is usually noticed here.
+    if (text === 'cancel_booking' || text.toLowerCase() === 'cancel') {
+      await resetSession(phone, { state: 'idle', role: 'rider' });
+      return sendR(phone, tpl.riderMenu(lang), 'idle');
+    }
     let patch: Record<string, unknown>;
     if (input.location) {
       const address = await resolveAddress(input.location.lat, input.location.lng, input.location);
@@ -239,36 +268,29 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
     } else {
       patch = { drop_text: text };
     }
-    if (!input.location && !text) return sendR(phone, tpl.askDrop(lang), 'awaiting_drop_location');
+    if (!input.location && !text) return sendDropPrompt(phone, lang);
     const next = { ...data, ...patch };
     await upsertSession(phone, { state: 'awaiting_trip_confirm', data: next });
-    const distance = confirmDistance(next);
-    return sendR(
-      phone,
-      tpl.tripConfirm(
-        lang,
-        placeLabel(
-          (next.pickup_lat as number) ?? null,
-          (next.pickup_lng as number) ?? null,
-          (next.pickup_text as string) ?? null,
-        ),
-        placeLabel(
-          (next.drop_lat as number) ?? null,
-          (next.drop_lng as number) ?? null,
-          (next.drop_text as string) ?? null,
-        ),
-        distance,
-      ),
-      'awaiting_trip_confirm',
-    );
+    return sendConfirmCard(phone, lang, next, (await getSettings()).scheduling_enabled);
   }
 
   // ── Confirm card ────────────────────────────────────────────────────
   if (state === 'awaiting_trip_confirm') {
     if (text === 'book_now') return createAndOpen(phone, rider.id, session, null);
+    if (text === 'cancel_booking' || text.toLowerCase() === 'cancel') {
+      await resetSession(phone, { state: 'idle', role: 'rider' });
+      return sendR(phone, tpl.riderMenu(lang), 'idle');
+    }
     if (text === 'schedule') {
-      await upsertSession(phone, { state: 'awaiting_schedule_day' });
-      return sendR(phone, tpl.scheduleDay(lang), 'awaiting_schedule_day');
+      const settings = await getSettings();
+      if (settings.scheduling_enabled) {
+        const now = new Date();
+        const plan = await leadPlan();
+        await upsertSession(phone, { state: 'awaiting_schedule_slot' });
+        return sendR(phone, tpl.scheduleSlot(lang, nextSlots(now, plan), now), 'awaiting_schedule_slot');
+      }
+      // Scheduling is hidden and must not be reachable: fall through to the
+      // confirm card, which only offers Book now.
     }
     if (text === 'change_pickup') {
       await upsertSession(phone, { state: 'awaiting_pickup_location' });
@@ -276,48 +298,60 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
     }
     if (text === 'change_drop') {
       await upsertSession(phone, { state: 'awaiting_drop_location' });
-      return sendR(phone, tpl.askDrop(lang), 'awaiting_drop_location');
+      return sendDropPrompt(phone, lang);
     }
-    const distance = confirmDistance(data);
-    return sendR(
-      phone,
-      tpl.tripConfirm(
-        lang,
-        placeLabel(
-          (data.pickup_lat as number) ?? null,
-          (data.pickup_lng as number) ?? null,
-          (data.pickup_text as string) ?? null,
-        ),
-        placeLabel(
-          (data.drop_lat as number) ?? null,
-          (data.drop_lng as number) ?? null,
-          (data.drop_text as string) ?? null,
-        ),
-        distance,
-      ),
-      'awaiting_trip_confirm',
-    );
+    return sendConfirmCard(phone, lang, data, (await getSettings()).scheduling_enabled);
   }
 
-  if (state === 'awaiting_schedule_day') {
-    if (text !== 'day_today' && text !== 'day_tomorrow') {
-      return sendR(phone, tpl.scheduleDay(lang), 'awaiting_schedule_day');
+  if (state === 'awaiting_schedule_slot') {
+    if (!(await getSettings()).scheduling_enabled) {
+      await upsertSession(phone, { state: 'awaiting_trip_confirm' });
+      return sendConfirmCard(phone, lang, data, false);
     }
-    await upsertSession(phone, { state: 'awaiting_schedule_hour', data: { schedule_day: text } });
-    return sendR(phone, tpl.scheduleHour(lang, hoursList()), 'awaiting_schedule_hour');
+    const now = new Date();
+    const plan = await leadPlan();
+    const m = /^slot_(\d{4})(\d{2})(\d{2})_(\d{1,2})$/.exec(text);
+    const slot = m
+      ? slotsForDay(ymdFromMatch(m), now, plan).find((s) => s.start === Number(m[4]))
+      : undefined;
+    if (!slot) {
+      // Unknown, aged out, or no longer serviceable - re-offer the list.
+      return sendR(phone, tpl.scheduleSlot(lang, nextSlots(now, plan), now), 'awaiting_schedule_slot');
+    }
+    await upsertSession(phone, {
+      state: 'awaiting_schedule_time',
+      data: { schedule_ymd: slot.ymd, schedule_slot_start: slot.start },
+    });
+    return sendR(phone, tpl.scheduleHour(lang, slot.ymd, slot.hours, now), 'awaiting_schedule_time');
   }
 
-  if (state === 'awaiting_schedule_hour') {
-    const m = /^hour_(\d{1,2})$/.exec(text);
-    if (!m) return sendR(phone, tpl.scheduleHour(lang, hoursList()), 'awaiting_schedule_hour');
-    const hour = Number(m[1]);
-    const when = new Date();
-    when.setMinutes(0, 0, 0);
-    when.setHours(hour);
-    if (data.schedule_day === 'day_tomorrow') when.setDate(when.getDate() + 1);
-    if (when.getTime() < Date.now()) when.setDate(when.getDate() + 1);
-    await upsertSession(phone, { data: { schedule_hour: hour, pickup_at: when.toISOString() } });
-    return createAndOpen(phone, rider.id, session, when);
+  if (state === 'awaiting_schedule_time') {
+    if (!(await getSettings()).scheduling_enabled) {
+      await upsertSession(phone, { state: 'awaiting_trip_confirm' });
+      return sendConfirmCard(phone, lang, data, false);
+    }
+    const now = new Date();
+    const plan = await leadPlan();
+    const m = /^hour_(\d{4})(\d{2})(\d{2})_(\d{1,2})$/.exec(text);
+    const ymd = m ? ymdFromMatch(m) : null;
+    const hour = m ? Number(m[4]) : -1;
+    const start = hour - (hour % 3);
+    // Re-derive the slot so a time that slipped past (or past the quiet cutoff)
+    // is refused rather than booked.
+    const slot = ymd ? slotsForDay(ymd, now, plan).find((s) => s.start === start) : undefined;
+    if (!slot || !slot.hours.includes(hour)) {
+      const stored = data.schedule_ymd as Ymd | undefined;
+      const storedStart = data.schedule_slot_start as number | undefined;
+      if (stored && typeof storedStart === 'number') {
+        const current = slotsForDay(stored, now, plan).find((s) => s.start === storedStart);
+        if (current) {
+          return sendR(phone, tpl.scheduleHour(lang, stored, current.hours, now), 'awaiting_schedule_time');
+        }
+      }
+      return sendR(phone, tpl.scheduleSlot(lang, nextSlots(now, plan), now), 'awaiting_schedule_slot');
+    }
+    await upsertSession(phone, { data: { schedule_hour: hour } });
+    return createAndOpen(phone, rider.id, session, istInstant(ymd as Ymd, hour));
   }
 
   // ── Active trip states ──────────────────────────────────────────────
@@ -337,6 +371,23 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
         });
         return;
       }
+      if (res.reason === 'conflict') {
+        // The driver was won by another rider in the same instant. Say so, and
+        // refresh the list - the taken driver's quote was withdrawn, so the
+        // stale list must not keep showing him.
+        await sendR(phone, tpl.driverTaken(lang), 'collecting_quotes');
+        const tripId = data.pending_trip_id as string | undefined;
+        const trip = tripId ? await getTrip(tripId) : null;
+        if (trip) {
+          if (await sendRiderQuoteList(trip)) return;
+          if (!quoteWindowClosed(trip)) {
+            return sendR(phone, tpl.findingAuto(lang, trip.id), 'collecting_quotes', trip.id);
+          }
+          // No other quotes and the window has closed: expire with Try again.
+          await closeQuoteWindow(trip);
+          return;
+        }
+      }
       return sendR(phone, tpl.text(t('trip_taken', lang)), 'collecting_quotes');
     }
     if (text === 'cancel' || text.startsWith('cancel_trip_')) {
@@ -352,7 +403,7 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
         return sendR(phone, tpl.findingAuto(lang, tripId), 'collecting_quotes', tripId);
       }
     }
-    return sendR(phone, tpl.riderHelp(lang), 'idle');
+    return sendR(phone, tpl.riderMenu(lang), 'idle');
   }
 
   if (state === 'trip_assigned' || state === 'ride_in_progress') {
@@ -371,7 +422,7 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
         phone,
         tpl.text(
           t('trip_status', lang, {
-            status: trip.status,
+            status: statusWord(trip.status, lang),
             name: driver?.name ?? '-',
             vehicle: driver?.vehicle_no ?? '-',
             phone: driver?.phone ?? '-',
@@ -381,7 +432,7 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
         trip.id,
       );
     }
-    return sendR(phone, tpl.riderHelp(lang), 'idle');
+    return sendR(phone, tpl.riderMenu(lang), 'idle');
   }
 
   if (state === 'awaiting_completion_confirm') {
@@ -390,23 +441,23 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
     // A typed destination leaves no coordinates - offer to fill them in.
     const dropMissing = trip ? trip.drop_lat == null || trip.drop_lng == null : false;
     if (text === 'confirm_yes') {
-      await updateTrip(tripId, { status: 'completed', completed_at: new Date().toISOString() });
-      recordEvent('completed', { actorRole: 'rider', actorId: rider.id, tripId });
-      if (trip && trip.driver_id) {
-        // Ask the driver to rate the rider.
-        const driver = await getDriverById(trip.driver_id);
-        if (driver) {
-          await send(driver.phone, 'driver', tpl.rateRider(lang, rider.name ?? 'Rider'), {
-            sessionState: 'awaiting_rider_rating',
-            tripId,
-          });
-          await upsertSession(driver.phone, {
-            state: 'awaiting_rider_rating',
-            role: 'driver',
-            data: { pending_rate_trip_id: tripId },
-          });
-        }
+      if (trip?.status === 'disputed') {
+        // The 24h silence turned this into a dispute the office is handling.
+        // A late Yes must not quietly reverse that.
+        const help = (await getSettings()).helpline ?? '-';
+        await resetSession(phone, { state: 'idle', role: 'rider' });
+        return sendR(phone, tpl.disputed(lang, help), 'idle');
       }
+      // The rider's confirmation closes the trip. The driver was already freed
+      // when he sent DONE; the trip stayed `in_progress` so the rider could not
+      // start a second booking or slip past the 24h dispute.
+      if (!(await updateTrip(tripId, { status: 'completed', completed_at: new Date().toISOString() }))) {
+        // Could not close it - re-ask rather than continue on a trip that is
+        // still in_progress.
+        const driver = trip?.driver_id ? await getDriverById(trip.driver_id) : null;
+        return sendR(phone, tpl.completionConfirm(lang, driver?.name ?? 'Driver'), 'awaiting_completion_confirm', tripId);
+      }
+      recordEvent('completed', { actorRole: 'rider', actorId: rider.id, tripId });
       if (dropMissing) {
         await upsertSession(phone, {
           state: 'awaiting_drop_proof',
@@ -513,16 +564,16 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
   if (state === 'awaiting_rating') {
     const m = /^rate_([1-5])$/.exec(text);
     const tripId = data.pending_trip_id as string;
-    if (!m) {
+    if (m) {
       const trip = await getTrip(tripId);
-      const driver = trip?.driver_id ? await getDriverById(trip.driver_id) : null;
-      return sendR(phone, tpl.rateList(lang, driver?.name ?? 'Driver'), 'awaiting_rating', tripId);
+      if (trip?.driver_id) await recordRating(tripId, 'rider', trip.driver_id, Number(m[1]));
+      await resetSession(phone, { state: 'idle', role: 'rider' });
+      await sendR(phone, tpl.thanksForRating(lang), 'idle');
+      return sendR(phone, tpl.riderPostComplete(lang), 'idle');
     }
-    const trip = await getTrip(tripId);
-    if (trip?.driver_id) await recordRating(tripId, 'rider', trip.driver_id, Number(m[1]));
-    await resetSession(phone, { state: 'idle', role: 'rider' });
-    await sendR(phone, tpl.thanksForRating(lang), 'idle');
-    return sendR(phone, tpl.riderPostComplete(lang), 'idle');
+    // Rating is optional and must never trap the rider: anything else drops the
+    // prompt and is handled normally below, exactly like the driver's rating.
+    await upsertSession(phone, { state: 'idle' });
   }
 
   if (state === 'awaiting_cancel_confirm') {
@@ -572,29 +623,11 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
     if (tripId && text.startsWith('retry_')) {
       const trip = await getTrip(tripId);
       if (trip) {
-        const window = new Date(Date.now() + (await getSettings()).quote_window_minutes * 60_000);
-        await updateTrip(tripId, {
-          status: 'open',
-          leads_dispatched: false,
-          quote_window_closes_at: window.toISOString(),
-        });
-        await upsertSession(phone, {
-          state: 'collecting_quotes',
-          role: 'rider',
-          current_trip_id: tripId,
-          data: { pending_trip_id: tripId },
-        });
-        const reopened: Trip = { ...trip, status: 'open', leads_dispatched: false };
-        const notified = await dispatchLeads(reopened);
-        if (notified === 0) {
-          await noCoverExpire(reopened);
-          return;
-        }
-        await sendR(phone, tpl.findingAuto(lang, tripId, notified), 'collecting_quotes', tripId);
+        await reopenTrip(trip);
         return;
       }
     }
-    return sendR(phone, tpl.riderHelp(lang), 'idle');
+    return sendR(phone, tpl.riderMenu(lang), 'idle');
   }
 
   if (state === 'awaiting_language') {
@@ -643,15 +676,13 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
         ...(address ? { pickup_text: address } : {}),
       },
     });
-    return sendR(phone, tpl.askDrop(lang), 'awaiting_drop_location');
+    return sendDropPrompt(phone, lang);
   }
 
   if (
     text === 'book_auto' ||
     lower === 'auto' ||
     lower === 'book' ||
-    lower === 'hi' ||
-    lower === 'hello' ||
     text === 'ಆಟೋ' ||
     text === 'ಬುಕ್'
   ) {
@@ -672,7 +703,7 @@ export async function handleRiderMessage(phone: string, input: RiderInput): Prom
     return sendR(phone, tpl.languageMenu(lang), 'awaiting_language');
   }
 
-  return sendR(phone, tpl.riderHelp(lang), 'idle');
+  return sendR(phone, tpl.riderMenu(lang), 'idle');
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────
@@ -686,6 +717,32 @@ function confirmDistance(d: Record<string, unknown>): number | null {
     return estimateRoadKm({ lat: a as number, lng: b as number }, { lat: c as number, lng: e as number });
   }
   return null;
+}
+
+/** Drop prompt plus type-it/cancel options, since a location request carries no buttons. */
+async function sendDropPrompt(phone: string, lang: Lang): Promise<void> {
+  await sendR(phone, tpl.askDrop(lang), 'awaiting_drop_location');
+  return sendR(phone, tpl.dropOptions(lang), 'awaiting_drop_location');
+}
+
+/** The confirm card, with the Schedule button only while scheduling is enabled. */
+async function sendConfirmCard(
+  phone: string,
+  lang: Lang,
+  d: Record<string, unknown>,
+  scheduling: boolean,
+): Promise<void> {
+  return sendR(
+    phone,
+    tpl.tripConfirm(
+      lang,
+      placeLabel((d.pickup_lat as number) ?? null, (d.pickup_lng as number) ?? null, (d.pickup_text as string) ?? null),
+      placeLabel((d.drop_lat as number) ?? null, (d.drop_lng as number) ?? null, (d.drop_text as string) ?? null),
+      confirmDistance(d),
+      scheduling,
+    ),
+    'awaiting_trip_confirm',
+  );
 }
 
 async function createAndOpen(
@@ -710,12 +767,30 @@ async function createAndOpen(
     properties: { pickup_at: trip.pickup_at, distance_km: trip.distance_km },
   });
   if (!pickupAt) {
-    const notified = await dispatchLeads(trip);
+    const { notified, failed } = await dispatchLeads(trip);
     if (notified === 0) {
-      await noCoverExpire(trip);
+      // An outright send failure is ours, not "no autos here" - leave the trip
+      // open and let the window close it with an accurate message.
+      if (failed === 0) await noCoverExpire(trip);
       return;
     }
     await sendR(phone, tpl.findingAuto(lang, trip.id, notified), 'collecting_quotes', trip.id);
+    return;
+  }
+  // Scheduled: leads go out later (evening-before for early pickups). Warn the
+  // rider honestly when that means a driver is not guaranteed overnight.
+  const settings = await getSettings();
+  if (pickupAt) {
+    const plan = {
+      leadHours: settings.scheduled_lead_hours,
+      quietStart: settings.quiet_hours_start,
+      quietEnd: settings.quiet_hours_end,
+      eveningHour: settings.evening_dispatch_hour,
+    };
+    await sendR(phone, tpl.findingAuto(lang, trip.id), 'collecting_quotes', trip.id);
+    if (needsEarlyNotice(pickupAt, plan)) {
+      return sendR(phone, tpl.overnightNote(lang), 'collecting_quotes', trip.id);
+    }
     return;
   }
   await sendR(phone, tpl.findingAuto(lang, trip.id), 'collecting_quotes', trip.id);
@@ -729,6 +804,16 @@ async function showActiveTrip(
   session: Session | null,
 ): Promise<void> {
   const driver = trip.driver_id ? await getDriverById(trip.driver_id) : null;
+
+  // A dispute belongs to the office, not to a trip step: show the dispute
+  // message (with the helpline) and drop to idle rather than nudging the rider
+  // back into `trip_assigned`. The trip still blocks a new booking.
+  if (trip.status === 'disputed') {
+    const help = (await getSettings()).helpline ?? '-';
+    await resetSession(phone, { state: 'idle', role: 'rider' });
+    return sendR(phone, tpl.disputed(lang, help), 'idle', trip.id);
+  }
+
   const stateFor =
     trip.status === 'open'
       ? 'collecting_quotes'
@@ -741,16 +826,16 @@ async function showActiveTrip(
     current_trip_id: trip.id,
     data: { pending_trip_id: trip.id },
   });
-  const body = ACTIVE.includes(trip.status)
-    ? tpl.text(
-        t('trip_status', lang, {
-          status: trip.status,
-          name: driver?.name ?? '-',
-          vehicle: driver?.vehicle_no ?? '-',
-          phone: driver?.phone ?? '-',
-        }),
-      )
-    : tpl.riderHelp(lang);
+  // Never show the rider the raw database enum.
+  const status = statusWord(trip.status, lang);
+  const body = tpl.text(
+    t('trip_status', lang, {
+      status,
+      name: driver?.name ?? '-',
+      vehicle: driver?.vehicle_no ?? '-',
+      phone: driver?.phone ?? '-',
+    }),
+  );
   await sendR(phone, body, stateFor, trip.id);
   void session;
 }

@@ -44,8 +44,8 @@ KYC images go to the restricted **`kyc`** storage bucket (never the public `phot
 | `trip_assigned` | Won a trip, not yet moving | `start_trip` → `en_route`; `arrived` (skipping the step) → `awaiting_ride_otp`; cancel → `awaiting_cancel_confirm` |
 | `en_route` | Tapped I am on the way, heading to pickup | `arrived` → `awaiting_ride_otp`; cancel → `awaiting_cancel_confirm` |
 | `awaiting_ride_otp` | Arrived, entering the rider's code | correct code → `ride_in_progress`; wrong → re-prompt (max 10) |
-| `ride_in_progress` | Riding | `DONE` → rider confirms → `awaiting_rider_rating` |
-| `awaiting_rider_rating` | Rate the rider | `rate_1`…`rate_5` → `idle` |
+| `ride_in_progress` | Riding | `DONE` → driver **freed** (leaves every active-trip lookup) and asked to rate → `awaiting_rider_rating`; trip stays `in_progress` until the rider confirms or disputes |
+| `awaiting_rider_rating` | Rate the rider (optional) | `rate_1`…`rate_5` → `idle`; anything else skips the rating → handled normally |
 | `awaiting_base_confirm` | Sent a location while idle | `base_yes` → update → `idle`; `base_no` → `idle` |
 | `awaiting_cancel_confirm` | Confirming cancellation | `cancel_yes` → `awaiting_cancel_reason`; `cancel_no` → back |
 | `awaiting_cancel_reason` | Pick a reason for dropping the trip | `creason_*` → `idle` (trip reopened); `creason_other` → `awaiting_cancel_reason_text` |
@@ -98,6 +98,8 @@ stateDiagram-v2
     idle --> awaiting_quote_amount : taps Quote on a lead
     idle --> awaiting_quote_amount : types an amount with one open trip
     idle --> awaiting_trip_pick : types an amount with several open trips
+    idle --> awaiting_quote_amount : taps See trips with one open trip
+    idle --> awaiting_trip_pick : taps See trips with several open trips
     awaiting_trip_pick --> awaiting_quote_amount : picks a trip
     awaiting_quote_amount --> idle : types a valid amount - quote sent
     awaiting_quote_amount --> awaiting_quote_amount : invalid amount - re-prompt
@@ -106,10 +108,10 @@ stateDiagram-v2
     awaiting_ride_otp --> ride_in_progress : enters the correct 4-digit code
     awaiting_ride_otp --> awaiting_ride_otp : wrong code - re-prompt
     awaiting_ride_otp --> idle : ten wrong attempts - contact office
-    ride_in_progress --> awaiting_rider_rating : sends DONE and the rider confirms
+    ride_in_progress --> awaiting_rider_rating : sends DONE - driver freed and asked to rate, trip still awaits the rider
     ride_in_progress --> ride_in_progress : anything else - send DONE
     awaiting_rider_rating --> idle : taps 1 to 5 stars
-    awaiting_rider_rating --> awaiting_rider_rating : anything else - re-prompt
+    awaiting_rider_rating --> idle : anything else - rating skipped, handled normally
     idle --> awaiting_cancel_confirm : types cancel with an active trip
     awaiting_cancel_confirm --> awaiting_cancel_reason : taps Yes - asked for a reason
     awaiting_cancel_confirm --> trip_assigned : taps No
@@ -118,7 +120,7 @@ stateDiagram-v2
     idle --> awaiting_language : types language
     idle --> idle : not approved - told to wait
     idle --> idle : subscription lapsed - told how to renew
-    idle --> idle : anything else - driver help
+    idle --> idle : anything else, incl. greetings - menu See trips, Help, Language
     awaiting_cancel_reason --> awaiting_cancel_reason_text : taps Other
     awaiting_cancel_reason --> awaiting_cancel_reason : anything else - re-prompt
     awaiting_cancel_reason_text --> awaiting_cancel_reason_text : empty - re-prompt
@@ -163,34 +165,27 @@ Two ways to answer, both valid:
 | 3 | `arrived_{tripId}` | Mark arrived → `awaiting_ride_otp` |
 | 4 | `pick_trip_{tripId}` | → `awaiting_quote_amount` for that trip |
 | 5 | `rate_{n}` and a rating is pending | Record rating |
-| 6 | Bare number | Quote (one open trip) or → `awaiting_trip_pick` |
-| 7 | 4-digit code / `CODE nnnn` | Treated as OTP if awaiting one, else ignored |
-| 8 | `DONE` / "done" / "ಆಯಿತು" | Only valid in `ride_in_progress` |
-| 9 | "cancel" | → `awaiting_cancel_confirm` (active trip only) |
-| 10 | `base_yes` / `base_no` | Only valid in `awaiting_base_confirm` |
-| 11 | `radius_{n}` | → set radius |
-| 12 | "radius" / "ವ್ಯಾಪ್ತಿ" | → `awaiting_radius_change` |
-| 13 | "language" / "ಭಾಷೆ" (case-insensitive) | → `awaiting_language` (menu). The rider flow additionally accepts "kannada"/"english" typed directly; the driver does not — a driver typing "kannada" falls through to #15, which tells him to send "language" |
+| 6 | `see_trips` | Prompt for a price (one open trip) or show the trip-pick list (several); with none, re-show the menu |
+| 7 | Bare number | Quote (one open trip) or → `awaiting_trip_pick` |
+| 8 | 4-digit code / `CODE nnnn` | Treated as OTP if awaiting one, else ignored |
+| 9 | `DONE` / "done" / "ಆಯಿತು" | Only valid in `ride_in_progress` |
+| 10 | "cancel" | → `awaiting_cancel_confirm` (active trip only) |
+| 11 | `base_yes` / `base_no` | Only valid in `awaiting_base_confirm` |
+| 12 | `radius_{n}` | → set radius |
+| 13 | "radius" / "ವ್ಯಾಪ್ತಿ" | → `awaiting_radius_change` |
+| 14 | "language" / "ಭಾಷೆ" (case-insensitive) | → `awaiting_language` (menu) |
 | — | "help" / "ಸಹಾಯ" | **Checked before every state branch**, including the approval gate. Queues a help request and replies with the helpline |
-| 14 | "hi" / "hello" / "hey" / "namaskara" / "ನಮಸ್ಕಾರ" / "ಹಾಯ್" | Greeting. Replies with work status: with open trips, *"you have {n} open — reply with your price"*; with none, *"you are all set, we will message you when a trip comes up"* |
-| 15 | Anything else, and a trip **is** open | Help: *"Reply with a number to quote. Send your location to update where you wait."* |
-| 16 | Anything else, and **no** trip is open | *"Sorry, I did not understand that."* plus what he can actually do: send "language", send his location, or "help" |
+| 15 | Greetings ("hi"…) **and anything unrecognised** | **Menu**: *See trips* (only when work is open) / *Help* / *Language* |
 
-**Why #15 and #16 are different.** `driver_help` opens with "Reply with a
-number to quote". That is only actionable when a trip is actually open to him.
-A driver who had just quoted and then sent something unrecognised — "language"
-typed as "Language", or a word the bot does not know — was being told to quote
-when there was nothing left to quote on. The catch-all now checks first.
+**Why #15 is now a menu.** The old greeting and catch-all were text-only: a driver
+with no trips was told to "reply with a number to quote" (unactionable), and an
+unknown word produced *"Sorry, I did not understand."* with a list of keywords.
+Both now show the same three tappable actions, so a driver never has to learn a
+keyword. `See trips` is only offered when a trip is actually open to him.
 
-**Why "language" is compared case-insensitively (#13).** The rider flow
+**Why "language" is compared case-insensitively (#14).** The rider flow
 lowercases its input; the driver flow did not, so "Language" or "LANGUAGE" from
 a driver fell straight through to the catch-all. Both now match the same way.
-
-**Why greetings are their own branch (#14) and not part of the fall-through.**
-They were previously #14 with everything else, so a driver who had just been
-approved and said "Hi" was told to *"reply with a number to quote"* — an
-instruction he could not act on, because no trip had been dispatched to him.
-The fall-through message assumes the driver has work; the greeting must not.
 Greetings now report the driver's real situation instead.
 
 ## Message priority while a trip is active
@@ -214,7 +209,7 @@ Greetings now report the driver's real situation instead.
 | `kyc_aadhaar_back_url` | `awaiting_kyc_aadhaar_back` | written to `drivers` on selfie step |
 | `pending_base_lat` / `pending_base_lng` / `pending_base_text` | location sent while idle | confirmed or declined |
 | `otp_attempts` | first wrong OTP | successful OTP |
-| `pending_rate_trip_id` | rider confirmed completion | rating submitted |
+| `pending_rate_trip_id` | driver sends DONE | rating submitted |
 | `prev_state` | entering `awaiting_language` | language chosen |
 
 ## Button IDs
@@ -226,10 +221,12 @@ Greetings now report the driver's real situation instead.
 | `radius_{n}` | Coverage radius |
 | `skip_kyc` | Skip a KYC upload step |
 | `quote_{tripId}` | Start a quote for a trip |
+| `see_trips` | Menu: show open trips and prompt for a price |
+| `help` / `language` | Menu buttons: reach the office, or change language |
 | `pick_trip_{tripId}` | Choose which trip a bare number applies to |
 | `start_trip` | I am on the way - tells the rider, moves to `en_route` |
 | `arrived` | I have arrived - asks for the rider's code |
-| `trip_done` | Rider dropped - ends the trip (came with "trip started") |
+| `trip_done` | Rider dropped - frees the driver; trip then awaits the rider's confirmation (came with "trip started") |
 | `cancel_trip_{tripId}` / `cancel` | Cancel - on the assignment and arrival messages |
 | `cancel_yes` / `cancel_no` | Cancel confirmation |
 | `creason_unreachable` / `creason_too_far` / `creason_vehicle_problem` / `creason_not_available` | Cancellation reasons |
@@ -252,10 +249,14 @@ and `trips.cancel_reason` holds the typed text.
 1. **Text where the base location is expected** — **rejected**. Matching runs on coordinates, so a typed area name used to leave the driver silently out of every lead while paying a subscription. The bot re-prompts for a real location. A later location update (`awaiting_base_confirm`) is the way to move base during the day.
 2. **Subscription lapsed** — no leads. Any inbound message gets *"Your subscription ended on {date}. Pay ₹{amount} to keep receiving trips — contact {number}."* The driver is not silently dropped.
 3. **Location sent while idle** → `awaiting_base_confirm`: *"Update where you wait to this location?"* Yes/No. Autos move during the day, so this must be easy.
-4. **Driver already has an active trip** — excluded from all matching until the trip closes (`one_active_trip_per_driver`).
+4. **Driver already has an active trip** — excluded from all matching until the trip closes (`one_active_trip_per_driver`, which also ignores any trip he has already finished). The index releases the driver the moment he sends `DONE` (`done_at` set) and ignores **disputed** trips too: the ride is over and the dispute is between the rider and the office, so holding the driver out of the pool would punish him for a fare the office has not even ruled on. The rider, by contrast, is still blocked by the unconfirmed `in_progress` trip and by `disputed` until the office closes it.
+4b. **Driver sent DONE but the rider has not answered yet** — the driver is already released and rating the rider; waiting for the rider's Yes/No would keep a paying driver idle on a tap he cannot control. The trip stays `in_progress` so the rider cannot start a second booking and the 24h silence still turns it into `disputed`. The rider's Yes then closes it as `completed`; No moves it to `disputed`.
 5. **Wrong OTP** — re-prompt, `otp_attempts` incremented; after 10, tell them to contact the office. Codes expire via `trip_otps.expires_at`.
 6. **Driver cancels after accepting** — allowed, recorded in `events` as `cancelled` with `cancelled_by = 'driver'`, counts against reliability. Trip returns to `open`; the rider keeps their other quotes and the window is reset.
 7. **Quote arrives after the rider accepted someone else** — the quote is never created; the driver's reply gets *"That trip was taken."*
+7b. **A driver wins one ride while holding quotes on others** — his other pending quotes are set to `withdrawn` and he is told *"your other quotes were withdrawn - you can only be on one ride at a time"*, so the vanished rides are not a mystery.
+7c. **"Will I actually get rides?"** — asked at signup. The pending-approval and verified messages say plainly that leads are shared among drivers nearby, that riders pick on price, rating and reply speed, and that every lead becoming a ride is not guaranteed. Setting this expectation up front is cheaper than a churn conversation later.
+7d. **Staying responsive pays** — a driver who replied in the last 22h is "warm": within `lead_warm_band_km` (default 1 km) of a pickup, warm drivers are offered the trip before dormant ones, and warm leads are free to send. It nudges drivers to stay reachable, but it is bounded by distance — a warm driver across town never beats a cold one nearby — so the rider's pickup is never sacrificed for cost.
 8. **Driver quotes their own trip twice** — rejected with the existing amount (see above).
 9. **Lead undelivered** — recorded from the `statuses` webhook. Never re-sent automatically in v1; used only for presence analytics.
 10. **Session expired (>24h)** — row deleted by cron; role re-resolved from `drivers`, so the driver never re-picks a role and never re-signs up.

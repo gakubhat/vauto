@@ -1,4 +1,5 @@
 import { beforeAll, beforeEach, afterAll, describe, it, expect } from 'vitest';
+import { supabaseAdmin } from '../../src/supabase/client';
 import { closeQuoteWindow } from '../../src/lib/matching';
 import { getTrip } from '../../src/state/queries';
 import {
@@ -106,6 +107,32 @@ describe('quote list', () => {
 
     expect((await getTrip(tripId))?.status).toBe('assigned');
     expect((await stateOf(RIDER_PHONE))?.state).toBe('trip_assigned');
+  }, 60000);
+
+  it('orders equal-priced quotes by who replied first', async () => {
+    await seedRider();
+    await seedDriver(DRIVER_A_PHONE, { name: 'Ramesh', lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+    await seedDriver(DRIVER_B_PHONE, { name: 'Suresh', lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+    await postTrip();
+    await driverStep(DRIVER_A_PHONE, { text: '70' }); // first to reply
+    await driverStep(DRIVER_B_PHONE, { text: '70' }); // same price, later
+
+    const lists = quoteLists();
+    const rows = quoteRowsOf(lists[lists.length - 1].msg);
+    expect(rows.length).toBe(2);
+
+    const ids = rows.map((r) => r.id.replace('accept_quote_', ''));
+    const { data: quotes } = await supabaseAdmin.from('quotes').select('id, driver_id').in('id', ids);
+    const driverByQuote = new Map(
+      (quotes ?? []).map((q) => [(q as { id: string }).id, (q as { driver_id: string }).driver_id]),
+    );
+    const { data: drvA } = await supabaseAdmin
+      .from('drivers')
+      .select('id')
+      .eq('phone', DRIVER_A_PHONE)
+      .single();
+    // Cheapest-equal, first-reply first.
+    expect(driverByQuote.get(ids[0])).toBe((drvA as { id: string }).id);
   }, 60000);
 
   it('keeps the trip open at window close so the rider can still pick', async () => {

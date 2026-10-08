@@ -24,6 +24,15 @@ function optionalBool(key: string, fallback: boolean): boolean {
   return val.toLowerCase() === 'true' || val === '1';
 }
 
+// Tests call truncateAll(), which is destructive. They must NEVER point at the
+// live project. Under NODE_ENV=test (vitest sets it) we switch to a dedicated
+// throwaway project when one is configured, and tests refuse to wipe otherwise
+// (see tests/harness.ts). A Supabase dev branch works as the test project.
+const isTest = process.env.NODE_ENV === 'test';
+const testSupabaseUrl = process.env.TEST_SUPABASE_URL ?? '';
+const testSupabaseSecretKey = process.env.TEST_SUPABASE_SERVICE_ROLE_KEY ?? '';
+const useTestDb = isTest && testSupabaseUrl !== '' && testSupabaseSecretKey !== '';
+
 export const config = {
   nodeEnv: optional('NODE_ENV', 'development'),
   port: optionalInt('PORT', 3000),
@@ -33,8 +42,11 @@ export const config = {
   adminPhone: required('ADMIN_PHONE'),
   adminPassword: required('ADMIN_PASSWORD'),
 
-  supabaseUrl: required('SUPABASE_URL'),
-  supabaseSecretKey: required('SUPABASE_SERVICE_ROLE_KEY'),
+  supabaseUrl: useTestDb ? testSupabaseUrl : required('SUPABASE_URL'),
+  supabaseSecretKey: useTestDb ? testSupabaseSecretKey : required('SUPABASE_SERVICE_ROLE_KEY'),
+  // Non-empty only when a dedicated test project is configured. The destructive
+  // guard compares the live client's URL against this.
+  testSupabaseUrl,
   storageBucketKyc: optional('STORAGE_BUCKET_KYC', 'kyc'),
 
   // Single WhatsApp number for everyone — riders and drivers alike.

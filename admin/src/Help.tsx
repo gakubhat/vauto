@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { closeHelpRequest, getHelpRequests } from './api';
+import { useState } from 'react';
+import { closeHelpRequest, getHelpRequests, getSettings, reopenHelpRequest } from './api';
+import { Notice, useApi } from './ui';
 
 interface HelpRequest {
   id: string;
@@ -14,6 +15,11 @@ interface HelpRequest {
   recent: Array<{ direction: string; body: string; created_at: string }>;
 }
 
+interface HelpData {
+  rows: HelpRequest[];
+  helpline: string | null;
+}
+
 function waited(from: string): string {
   const mins = Math.round((Date.now() - new Date(from).getTime()) / 60000);
   if (mins < 1) return 'just now';
@@ -25,18 +31,28 @@ function waited(from: string): string {
 
 export function Help() {
   const [openOnly, setOpenOnly] = useState(true);
-  const [rows, setRows] = useState<HelpRequest[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
-  async function load() {
-    setRows((await getHelpRequests(openOnly)) as HelpRequest[]);
+  const { data, error, loading, reload } = useApi<HelpData>(
+    async () => ({
+      rows: (await getHelpRequests(openOnly)) as HelpRequest[],
+      helpline: ((await getSettings()) as { helpline: string | null }).helpline,
+    }),
+    [openOnly],
+  );
+
+  async function act(id: string, fn: () => Promise<unknown>) {
+    setBusy(id);
+    try {
+      await fn();
+      await reload();
+    } catch (e) {
+      alert((e as Error).message);
+    }
+    setBusy(null);
   }
 
-  useEffect(() => {
-    void load();
-  }, [openOnly]);
-
-  if (!rows) return <p>Loading…</p>;
-
+  const rows = data?.rows ?? [];
   const openCount = rows.filter((r) => !r.closed_at).length;
 
   return (
@@ -47,8 +63,13 @@ export function Help() {
       </h1>
       <p className="muted">
         People who asked for a human — by sending "help" or disputing a trip. Call them back, then
-        mark it handled. The number to call is in Settings.
+        mark it handled.
       </p>
+      {data?.helpline && (
+        <p className="notice-ok">
+          Call from <strong>{data.helpline}</strong>
+        </p>
+      )}
       <div className="row">
         <label>
           <input
@@ -58,10 +79,12 @@ export function Help() {
           />{' '}
           Open only
         </label>
-        <button onClick={() => void load()}>Refresh</button>
+        <button onClick={() => void reload()}>Refresh</button>
       </div>
 
-      {rows.length === 0 && <p className="muted">Nothing waiting. Good.</p>}
+      <Notice error={error} loading={loading} onRetry={reload} />
+
+      {data && rows.length === 0 && <p className="muted">Nothing waiting. Good.</p>}
 
       {rows.map((r) => (
         <div className="panel" key={r.id}>
@@ -74,15 +97,22 @@ export function Help() {
             </a>
             {!r.closed_at && <span className="muted">waiting {waited(r.opened_at)}</span>}
             {r.closed_at ? (
-              <span className="muted">
-                handled {new Date(r.closed_at).toLocaleString()} by {r.closed_by ?? '—'}
-              </span>
+              <>
+                <span className="muted">
+                  handled {new Date(r.closed_at).toLocaleString()} by {r.closed_by ?? '—'}
+                </span>
+                <button disabled={busy === r.id} onClick={() => void act(r.id, () => reopenHelpRequest(r.id))}>
+                  Reopen
+                </button>
+              </>
             ) : (
               <button
                 className="primary"
-                onClick={async () => {
-                  await closeHelpRequest(r.id);
-                  void load();
+                disabled={busy === r.id}
+                onClick={() => {
+                  if (confirm(`Mark ${r.phone}'s request handled?`)) {
+                    void act(r.id, () => closeHelpRequest(r.id));
+                  }
                 }}
               >
                 Mark handled

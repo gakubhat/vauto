@@ -192,6 +192,22 @@ export async function handleDriverMessage(phone: string, input: DriverInput): Pr
     );
   }
 
+  // ── Stale active-trip state ─────────────────────────────────────────
+  // The ride is over but the driver's session still points at a trip that is
+  // no longer active (e.g. the rider disputed it, so it left their lookup).
+  // Without this, the "awaiting_ride_otp"/"ride_in_progress" branches below
+  // have no trip to act on and the driver is stuck sending DONE forever.
+  const TRIP_STATES = [
+    'trip_assigned',
+    'en_route',
+    'awaiting_ride_otp',
+    'ride_in_progress',
+  ];
+  if (TRIP_STATES.includes(state) && !(await getActiveTripForDriver(driver.id))) {
+    await resetSession(phone, { state: 'idle', role: 'driver' });
+    return sendD(phone, tpl.driverHelp(lang), 'idle');
+  }
+
   // ── Active trip states ──────────────────────────────────────────────
   if (state === 'awaiting_quote_amount') {
     const amount = parseAmount(text);
@@ -243,10 +259,31 @@ export async function handleDriverMessage(phone: string, input: DriverInput): Pr
     const trip = await getActiveTripForDriver(driver.id);
     if (!trip) return sendD(phone, tpl.driverHelp(lang), 'idle');
     if (text.toUpperCase() === 'DONE' || text === 'ಆಯಿತು' || text === 'trip_done') {
-      await updateTrip(trip.id, { done_at: new Date().toISOString() });
+      // The ride is over for the driver the moment he says so: `done_at` takes
+      // him out of every active-trip lookup, so he is free for new leads. The
+      // trip itself stays `in_progress` until the rider confirms (→ completed)
+      // or a No / the 24h silence turns it into `disputed`; the rider stays
+      // blocked meanwhile.
+      // If the write fails, do not tell the rider it ended or free the driver -
+      // re-prompt DONE so he can retry.
+      if (!(await updateTrip(trip.id, { done_at: new Date().toISOString() }))) {
+        return sendD(phone, tpl.askDone(lang), 'ride_in_progress', trip.id);
+      }
       recordEvent('done_marked', { actorRole: 'driver', actorId: driver.id, tripId: trip.id });
-      await sendD(phone, tpl.doneRecorded(lang), 'ride_in_progress', trip.id);
+
       const rider = await getRiderById(trip.rider_id);
+
+      // Ask the driver to rate the rider, but drop his session out of the trip
+      // states so new leads reach him immediately.
+      await upsertSession(phone, {
+        state: 'awaiting_rider_rating',
+        role: 'driver',
+        data: { pending_rate_trip_id: trip.id },
+      });
+      await sendD(phone, tpl.rateRider(lang, rider?.name ?? 'Rider'), 'awaiting_rider_rating', trip.id);
+
+      // Tell the rider the ride ended; the completion prompt carries both the
+      // rating path (Yes) and the dispute path (No).
       if (rider) {
         const rLang = langOf(rider.preferred_language);
         await send(rider.phone, 'rider', tpl.completionConfirm(rLang, driver.name ?? 'Driver'), {
@@ -268,16 +305,16 @@ export async function handleDriverMessage(phone: string, input: DriverInput): Pr
   if (state === 'awaiting_rider_rating') {
     const m = /^rate_([1-5])$/.exec(text);
     const tripId = data.pending_rate_trip_id as string;
-    if (!m) {
+    if (m) {
       const trip = await getTrip(tripId);
-      const rider = trip ? await getRiderById(trip.rider_id) : null;
-      return sendD(phone, tpl.rateRider(lang, rider?.name ?? 'Rider'), state, tripId);
+      if (trip) await recordRating(tripId, 'driver', trip.rider_id, Number(m[1]));
+      await resetSession(phone, { state: 'idle', role: 'driver' });
+      await sendD(phone, tpl.thanksForRating(lang), 'idle');
+      return sendD(phone, tpl.postComplete(lang), 'idle');
     }
-    const trip = await getTrip(tripId);
-    if (trip) await recordRating(tripId, 'driver', trip.rider_id, Number(m[1]));
-    await resetSession(phone, { state: 'idle', role: 'driver' });
-    await sendD(phone, tpl.thanksForRating(lang), 'idle');
-    return sendD(phone, tpl.postComplete(lang), 'idle');
+    // Rating is optional and must never trap the driver: anything else (a new
+    // lead, "hi", a stale tap) drops the prompt and is handled normally below.
+    await upsertSession(phone, { state: 'idle' });
   }
 
   if (state === 'awaiting_cancel_confirm') {
@@ -462,25 +499,7 @@ export async function handleDriverMessage(phone: string, input: DriverInput): Pr
       return submitQuote(phone, driver.id, openTrips[0], amount, lang);
     }
     await upsertSession(phone, { state: 'awaiting_trip_pick' });
-    return sendD(
-      phone,
-      {
-        kind: 'list',
-        body: t('quote_hint', lang),
-        button: t('quote_btn', lang),
-        sections: [
-          {
-            title: t('quote_btn', lang),
-            rows: openTrips.map((tr) => ({
-              id: `pick_trip_${tr.id}`,
-              title: `${tr.distance_km ?? '?'} km`,
-              description: (tr.drop_text ?? 'trip').slice(0, 60),
-            })),
-          },
-        ],
-      },
-      'awaiting_trip_pick',
-    );
+    return sendD(phone, tripPickMessage(lang, openTrips), 'awaiting_trip_pick');
   }
 
   if (text.startsWith('radius_')) {
@@ -501,18 +520,42 @@ export async function handleDriverMessage(phone: string, input: DriverInput): Pr
 
   const open = await openDispatchedTrips(driver.id);
 
-  // A greeting is not an unknown command. Falling through to `driverHelp` here
-  // told a driver with no open trips to "reply with a number to quote", which
-  // he cannot act on.
-  if (['hi', 'hello', 'hey', 'namaskara', 'ನಮಸ್ಕಾರ', 'ಹಾಯ್'].includes(lower)) {
-    return sendD(phone, tpl.driverHail(lang, open.length), 'idle');
+  // Menu: tapping beats remembering keywords for a driver at rest.
+  if (text === 'see_trips') {
+    if (open.length === 0) return sendD(phone, tpl.driverMenu(lang, 0), 'idle');
+    if (open.length === 1) {
+      await upsertSession(phone, {
+        state: 'awaiting_quote_amount',
+        data: { pending_trip_id: open[0].id },
+      });
+      return sendD(phone, tpl.quotePrompt(lang), 'awaiting_quote_amount', open[0].id);
+    }
+    await upsertSession(phone, { state: 'awaiting_trip_pick' });
+    return sendD(phone, tripPickMessage(lang, open), 'awaiting_trip_pick');
   }
 
-  // Unknown command. "Reply with a number to quote" is only something he can
-  // do when a trip is open to him; with none it is noise, so say what he can
-  // do instead.
-  if (open.length > 0) return sendD(phone, tpl.driverHelp(lang), 'idle');
-  return sendD(phone, tpl.text(t('driver_unknown', lang)), 'idle');
+  // A greeting, or anything unrecognised, shows the menu - never the old
+  // "reply with a number to quote" text, which a driver with no trips cannot act on.
+  return sendD(phone, tpl.driverMenu(lang, open.length), 'idle');
+}
+
+/** One list of the open trips a driver can quote on. */
+function tripPickMessage(lang: Lang, trips: Trip[]): Parameters<typeof sendD>[1] {
+  return {
+    kind: 'list',
+    body: t('quote_hint', lang),
+    button: t('quote_btn', lang),
+    sections: [
+      {
+        title: t('quote_btn', lang),
+        rows: trips.slice(0, 10).map((tr) => ({
+          id: `pick_trip_${tr.id}`,
+          title: `${tr.distance_km ?? '?'} km`,
+          description: (tr.drop_text ?? 'trip').slice(0, 60),
+        })),
+      },
+    ],
+  };
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────
@@ -582,6 +625,9 @@ async function finalizeDriverCancel(
   });
   await supabaseAdmin.from('quotes').update({ status: 'lapsed' }).eq('trip_id', tripId);
   await supabaseAdmin.from('trip_otps').delete().eq('trip_id', tripId);
+  // A reopened trip starts a fresh dispatch: forget who was offered before, or
+  // staged dispatch would find everyone already notified and expire it.
+  await supabaseAdmin.from('lead_dispatches').delete().eq('trip_id', tripId);
 
   recordEvent('cancelled', {
     actorRole: 'driver',
@@ -593,10 +639,11 @@ async function finalizeDriverCancel(
   const trip = await getTrip(tripId);
   if (trip) {
     const reopened: Trip = { ...trip, status: 'open', leads_dispatched: false };
-    const notified = await dispatchLeads(reopened);
+    const { notified, failed } = await dispatchLeads(reopened);
     if (notified === 0) {
-      // Nobody else covers the pickup - do not promise another auto.
-      await noCoverExpire(reopened);
+      // A send failure is ours, not "no autos here": leave the trip open so its
+      // window closes it with an accurate message.
+      if (failed === 0) await noCoverExpire(reopened);
     } else {
       const rider = await getRiderById(trip.rider_id);
       if (rider) {

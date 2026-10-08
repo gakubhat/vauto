@@ -18,7 +18,7 @@ export function Login() {
 
   return (
     <div style={{ maxWidth: 320, margin: '80px auto' }}>
-      <h1>Auto Board Admin</h1>
+      <h1>VAuto Admin</h1>
       <form onSubmit={submit} className="panel">
         <div className="row">
           <input placeholder="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />

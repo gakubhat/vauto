@@ -192,6 +192,18 @@ function assertDestructiveAllowed(): void {
       'truncateAll() is destructive. Set ALLOW_DESTRUCTIVE_TESTS=true in .env to run tests.',
     );
   }
+  // The client must be pointed at a dedicated TEST project, not the live one.
+  // Without this, a routine `npm test` wipes real riders, drivers and trips -
+  // which is exactly how a live session gets deleted mid-conversation.
+  if (!config.testSupabaseUrl || config.supabaseUrl !== config.testSupabaseUrl) {
+    throw new Error(
+      'Refusing to wipe the database: tests must run against a dedicated TEST project.\n' +
+        'Create a throwaway Supabase project (or a dev branch) and set\n' +
+        'TEST_SUPABASE_URL and TEST_SUPABASE_SERVICE_ROLE_KEY in .env.\n' +
+        'Tests then use those credentials automatically under NODE_ENV=test and\n' +
+        'never touch SUPABASE_URL.',
+    );
+  }
 }
 
 /**
@@ -213,6 +225,32 @@ export async function setFareCheck(value: boolean): Promise<void> {
   await setSetting({ fare_check_enabled: value });
 }
 
+/** Scheduling is off by default; suites that exercise it must turn it on. */
+export async function setScheduling(value: boolean): Promise<void> {
+  await setSetting({ scheduling_enabled: value });
+}
+
+/** Staged-dispatch knobs for a test. */
+export async function setStaging(opts: {
+  size?: number;
+  intervalMinutes?: number;
+  expandBelow?: number;
+}): Promise<void> {
+  const patch: Record<string, unknown> = {};
+  if (opts.size !== undefined) patch.lead_stage_size = opts.size;
+  if (opts.intervalMinutes !== undefined) patch.lead_stage_interval_minutes = opts.intervalMinutes;
+  if (opts.expandBelow !== undefined) patch.lead_stage_expand_below = opts.expandBelow;
+  await setSetting(patch);
+}
+
+export async function setTemplateCap(value: number): Promise<void> {
+  await setSetting({ template_leads_per_driver_per_day: value });
+}
+
+export async function setWarmBand(value: number): Promise<void> {
+  await setSetting({ lead_warm_band_km: value });
+}
+
 export async function setHelpline(value: string | null): Promise<void> {
   await setSetting({ helpline: value });
 }
@@ -229,6 +267,7 @@ export async function truncateAll(): Promise<void> {
     if (error) throw new Error(`truncateAll failed on ${table}: ${error.message}`);
   };
     await wipe('help_requests', 'id', ZERO);
+    await wipe('role_overrides', 'phone', '__dummy__');
     await wipe('bot_messages', 'id', ZERO);
   await wipe('events', 'id', ZERO);
   await wipe('ratings', 'id', ZERO);

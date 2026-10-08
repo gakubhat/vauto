@@ -125,3 +125,65 @@ describe('ride lifecycle', () => {
     expect(quotes?.length ?? 0).toBe(0);
   }, 60000);
 });
+
+/** Book, assign, start and DONE a trip, leaving the rider on the completion prompt. */
+async function rideToDone(): Promise<string> {
+  const tripId = await postTrip();
+  await driverStep(DRIVER_A_PHONE, { text: '70' });
+  await riderStep({ text: findButtonId('accept_quote_', RIDER_PHONE) as string });
+  await driverStep(DRIVER_A_PHONE, { text: 'arrived' });
+  const { data: otp } = await supabaseAdmin
+    .from('trip_otps')
+    .select('code')
+    .eq('trip_id', tripId)
+    .single();
+  await driverStep(DRIVER_A_PHONE, { text: (otp as { code: string }).code });
+  await driverStep(DRIVER_A_PHONE, { text: 'DONE' });
+  return tripId;
+}
+
+describe('dispute safety net', () => {
+  it('flags an unanswered completion as disputed after dispute_hours', async () => {
+    await seedRider();
+    await seedDriver(DRIVER_A_PHONE, { name: 'Ramesh', lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+    const tripId = await rideToDone();
+
+    // The rider never answers. The trip stays in_progress so it is still the
+    // rider's active trip; pg_cron must turn the silence into a dispute.
+    expect((await getTrip(tripId))?.status).toBe('in_progress');
+    await supabaseAdmin
+      .from('trips')
+      .update({ done_at: new Date(Date.now() - 25 * 3_600_000).toISOString() })
+      .eq('id', tripId);
+    const { error } = await supabaseAdmin.rpc('v3_auto_dispute_stale');
+    expect(error).toBeNull();
+
+    expect((await getTrip(tripId))?.status).toBe('disputed');
+  }, 60000);
+
+  it('refuses a late Yes once the silence has already disputed the trip', async () => {
+    await seedRider();
+    await seedDriver(DRIVER_A_PHONE, { name: 'Ramesh', lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+    const tripId = await rideToDone();
+
+    await supabaseAdmin.from('trips').update({ status: 'disputed' }).eq('id', tripId);
+    await riderStep({ text: 'confirm_yes' });
+
+    // The office owns it now; the late tap must not flip it back to completed.
+    expect((await getTrip(tripId))?.status).toBe('disputed');
+    expect((await stateOf(RIDER_PHONE))?.state).toBe('idle');
+  }, 60000);
+
+  it('lets the rider skip the rating instead of trapping them', async () => {
+    await seedRider();
+    await seedDriver(DRIVER_A_PHONE, { name: 'Ramesh', lat: PICKUP.lat, lng: PICKUP.lng, radiusKm: 5 });
+    const tripId = await rideToDone();
+
+    await riderStep({ text: 'confirm_yes' });
+    expect((await stateOf(RIDER_PHONE))?.state).toBe('awaiting_rating');
+
+    await riderStep({ text: 'stop' });
+    expect((await stateOf(RIDER_PHONE))?.state).toBe('idle');
+    expect((await getTrip(tripId))?.status).toBe('completed');
+  }, 60000);
+});

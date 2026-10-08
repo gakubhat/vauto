@@ -32,6 +32,7 @@ DROP TABLE IF EXISTS lead_dispatches CASCADE;
 DROP TABLE IF EXISTS quotes CASCADE;
 DROP TABLE IF EXISTS trip_otps CASCADE;
 DROP TABLE IF EXISTS help_requests CASCADE;
+DROP TABLE IF EXISTS role_overrides CASCADE;
 DROP TABLE IF EXISTS driver_daily CASCADE;
 DROP TABLE IF EXISTS route_daily CASCADE;
 DROP TABLE IF EXISTS daily_summary CASCADE;
@@ -116,8 +117,11 @@ CREATE TABLE trips (
   started_at TIMESTAMPTZ,
   done_at TIMESTAMPTZ,
   completed_at TIMESTAMPTZ,
+  pick_deadline_at TIMESTAMPTZ,   -- set when the rider is shown the quote list
+  next_lead_batch_at TIMESTAMPTZ, -- staged dispatch: when the next batch is due
   cancelled_at TIMESTAMPTZ,
   cancel_reason TEXT,
+  resolution_note TEXT,           -- office's ruling when closing a disputed trip
   cancelled_by cancelled_by_type
 );
 
@@ -129,11 +133,15 @@ CREATE INDEX idx_trips_pickup ON trips USING GIST (ST_SetSRID(ST_MakePoint(picku
 
 -- One active trip per rider, and one per driver, enforced by the database.
 -- The driver index deliberately excludes 'open': a driver may hold quotes on
--- many open trips but may only ever have one that is assigned to them.
+-- many open trips but may only ever have one that is assigned to them. It also
+-- excludes trips the driver has already finished (`done_at` set) and disputes:
+-- the ride is over for the driver, so he must be free for new leads even while
+-- the rider is still confirming or the office is resolving a dispute. The rider
+-- index keeps 'completed' out too; an unconfirmed trip is still 'in_progress'.
 CREATE UNIQUE INDEX one_active_trip_per_rider ON trips (rider_id)
   WHERE status IN ('open', 'assigned', 'arrived', 'in_progress', 'disputed');
 CREATE UNIQUE INDEX one_active_trip_per_driver ON trips (driver_id)
-  WHERE status IN ('assigned', 'arrived', 'in_progress', 'disputed');
+  WHERE status IN ('assigned', 'arrived', 'in_progress') AND done_at IS NULL;
 
 CREATE TABLE ratings (
   id UUID PRIMARY KEY,
@@ -256,18 +264,57 @@ CREATE TABLE help_requests (
 CREATE INDEX idx_help_open ON help_requests(opened_at) WHERE closed_at IS NULL;
 CREATE INDEX idx_help_phone ON help_requests(phone);
 
+-- Office role override. A role is normally resolved from which table a phone is
+-- in, but a wrong Rider/Driver choice must be correctable and must stick (the
+-- session row is deleted by the 24h cleanup). Consulted before the tables.
+CREATE TABLE role_overrides (
+  phone VARCHAR(20) PRIMARY KEY,
+  role VARCHAR(10) NOT NULL CHECK (role IN ('rider', 'driver')),
+  previous_role VARCHAR(10),      -- natural role to restore when cleared
+  set_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  set_by VARCHAR(100)
+);
+
 CREATE TABLE settings (
   id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
   quote_window_minutes INTEGER NOT NULL DEFAULT 30,
   max_drivers_per_lead INTEGER NOT NULL DEFAULT 25,
   default_radius_km INTEGER NOT NULL DEFAULT 3,
   radius_options INTEGER[] NOT NULL DEFAULT '{2,3,5,8}',
+  -- Off for launch: with few drivers a scheduled trip usually goes unfilled,
+  -- which costs more trust than not offering it. Turn on when supply can serve it.
+  scheduling_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   auto_pick_cheapest BOOLEAN NOT NULL DEFAULT FALSE,
   fare_check_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   trial_days INTEGER NOT NULL DEFAULT 30,
   trial_min_rides INTEGER NOT NULL DEFAULT 10,
   dispute_hours INTEGER NOT NULL DEFAULT 24,
   scheduled_lead_hours INTEGER NOT NULL DEFAULT 2,
+  -- Scheduled leads are never sent during the quiet window (IST hours).
+  -- A trip whose normal lead time falls inside it is offered the evening
+  -- before instead, so early-morning pickups reach awake drivers.
+  quiet_hours_start INTEGER NOT NULL DEFAULT 22,
+  quiet_hours_end INTEGER NOT NULL DEFAULT 7,
+  evening_dispatch_hour INTEGER NOT NULL DEFAULT 21,
+  -- A scheduled trip with no quote this many minutes before pickup is expired
+  -- and the rider warned, instead of failing at the pickup time.
+  scheduled_confirm_minutes INTEGER NOT NULL DEFAULT 90,
+  -- After a trip's quote window closes with quotes, the rider is shown the list.
+  -- If they do not pick one within this many minutes, the trip expires so it
+  -- stops blocking them from booking again.
+  pick_deadline_minutes INTEGER NOT NULL DEFAULT 30,
+  -- Staged dispatch: offer leads to a small nearest batch first, then widen only
+  -- if the trip still has too few quotes. Bounds message cost and driver noise.
+  lead_stage_size INTEGER NOT NULL DEFAULT 10,
+  lead_stage_interval_minutes INTEGER NOT NULL DEFAULT 6,
+  lead_stage_expand_below INTEGER NOT NULL DEFAULT 3,
+  -- Platform-initiated template leads per driver per day (0 = unlimited). Caps
+  -- the cost of a dormant driver and stops spamming someone who is not replying.
+  template_leads_per_driver_per_day INTEGER NOT NULL DEFAULT 5,
+  -- Within this many km of the pickup, warm drivers (free to reach, at their
+  -- phone) are offered before cold ones. Beyond it, nearest-first wins, so a
+  -- warm driver further away never jumps a cold one nearby. 0 disables it.
+  lead_warm_band_km INTEGER NOT NULL DEFAULT 1,
   subscription_price_paise INTEGER NOT NULL DEFAULT 19900,
   renewal_contact VARCHAR(30),
   helpline VARCHAR(30),
@@ -326,7 +373,8 @@ AS $$
     AND NOT EXISTS (
       SELECT 1 FROM trips t
       WHERE t.driver_id = d.id
-        AND t.status IN ('assigned', 'arrived', 'in_progress', 'disputed')
+        AND t.status IN ('assigned', 'arrived', 'in_progress')
+        AND t.done_at IS NULL
     )
   ORDER BY distance_km ASC
   LIMIT p_limit;

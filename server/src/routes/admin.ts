@@ -3,9 +3,20 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuid } from 'uuid';
 import { config } from '../config';
 import { supabaseAdmin } from '../supabase/client';
-import { clearSettingsCache } from '../state/queries';
+import {
+  clearRoleOverride,
+  clearSettingsCache,
+  ensureDriver,
+  ensureRider,
+  getRoleOverride,
+  getTrip,
+  setRoleOverride,
+} from '../state/queries';
+import { reopenTrip } from '../lib/matching';
 import { deleteDriverCompletely, deleteRiderCompletely } from '../lib/delete-user';
 import { notifyDriverOfApproval } from '../lib/notify-driver';
+import { resolveDispute } from '../lib/dispute';
+import { buildSettingsPatch } from '../lib/settings';
 import { signedUrl } from '../lib/storage';
 import { deleteSession, resetSession } from '../state/store';
 import { UnauthorizedError } from '../lib/errors';
@@ -185,6 +196,7 @@ adminRouter.get('/drivers/:id', authenticate, async (req: Request, res: Response
   res.json({
     ...driver,
     ...kycUrls,
+    role_override: await getRoleOverride((driver as { phone: string }).phone),
     trips: trips ?? [],
     subscriptions: subs ?? [],
     metrics: {
@@ -266,20 +278,63 @@ adminRouter.post('/drivers/:id/subscription', authenticate, async (req: Request,
   res.json(data);
 });
 
+/**
+ * Force a phone onto one flow, or clear the override ("auto").
+ *
+ * Setting the role only in the session is not enough: the session is deleted by
+ * the 24h cleanup and role resolution falls back to the tables, flipping the
+ * person back. So the choice is stored in `role_overrides`, which resolution
+ * consults first, and the target row is created so the flow has a record.
+ */
+async function applyRoleOverride(
+  phone: string,
+  role: string,
+): Promise<{ ok: true; note: string }> {
+  if (role === 'auto') {
+    await clearRoleOverride(phone);
+    await deleteSession(phone);
+    return { ok: true, note: 'Override cleared; the role resolves from the tables again.' };
+  }
+  if (role !== 'rider' && role !== 'driver') {
+    throw new Error('role must be rider, driver or auto');
+  }
+  await setRoleOverride(phone, role, config.adminPhone);
+  if (role === 'driver') await ensureDriver(phone);
+  else await ensureRider(phone);
+  await deleteSession(phone);
+  return { ok: true, note: `Role pinned to ${role}. The next message is handled as ${role}.` };
+}
+
 adminRouter.post('/drivers/:id/role', authenticate, async (req: Request, res: Response) => {
   const { role } = req.body as { role?: string };
-  if (role !== 'rider' && role !== 'driver') {
-    return res.status(400).json({ error: 'role must be rider or driver' });
-  }
   const { data: driver } = await supabaseAdmin
     .from('drivers')
-    .select('phone, name')
+    .select('phone')
     .eq('id', req.params.id)
     .single();
   if (!driver) return res.status(404).json({ error: 'Not found' });
-  const phone = (driver as { phone: string }).phone;
-  await deleteSession(phone);
-  res.json({ ok: true, note: `session cleared for ${phone}; role now resolves from the tables` });
+  try {
+    const result = await applyRoleOverride((driver as { phone: string }).phone, role ?? '');
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ error: (e as Error).message });
+  }
+});
+
+adminRouter.post('/riders/:id/role', authenticate, async (req: Request, res: Response) => {
+  const { role } = req.body as { role?: string };
+  const { data: rider } = await supabaseAdmin
+    .from('riders')
+    .select('phone')
+    .eq('id', req.params.id)
+    .single();
+  if (!rider) return res.status(404).json({ error: 'Not found' });
+  try {
+    const result = await applyRoleOverride((rider as { phone: string }).phone, role ?? '');
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ error: (e as Error).message });
+  }
 });
 
 adminRouter.delete('/drivers/:id', authenticate, async (req: Request, res: Response) => {
@@ -319,7 +374,11 @@ adminRouter.get('/riders/:id', authenticate, async (req: Request, res: Response)
     .eq('rider_id', req.params.id)
     .order('created_at', { ascending: false })
     .limit(50);
-  res.json({ ...rider, trips: trips ?? [] });
+  res.json({
+    ...rider,
+    role_override: await getRoleOverride((rider as { phone: string }).phone),
+    trips: trips ?? [],
+  });
 });
 
 adminRouter.patch('/riders/:id', authenticate, async (req: Request, res: Response) => {
@@ -356,27 +415,41 @@ adminRouter.delete('/riders/:id', authenticate, async (req: Request, res: Respon
 
 // ── Trips ──────────────────────────────────────────────────────────────
 
+const TRIPS_PAGE_SIZE = 100;
+
 adminRouter.get('/trips', authenticate, async (req: Request, res: Response) => {
-  const { status, q } = req.query as Record<string, string | undefined>;
-  let query = supabaseAdmin
-    .from('trips')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(100);
+  const { status, q, page } = req.query as Record<string, string | undefined>;
+  const p = Math.max(1, Math.floor(Number(page ?? 1)) || 1);
+
+  let query = supabaseAdmin.from('trips').select('*');
   if (status) query = query.eq('status', status);
-  const { data } = await query;
-  let rows = data ?? [];
+
+  // Search by trip number or by the rider's name/phone. The filter must run in
+  // the database, not in memory, or pagination would skip matches on later pages.
   if (q) {
     const { data: riders } = await supabaseAdmin
       .from('riders')
-      .select('id, phone, name')
+      .select('id')
       .or(`name.ilike.%${q}%,phone.ilike.%${q}%`);
-    const ids = new Set(((riders ?? []) as Array<{ id: string }>).map((r) => r.id));
-    rows = (rows as Array<Record<string, unknown>>).filter(
-      (r) => ids.has(r.rider_id as string) || String(r.trip_number) === q,
-    );
+    const ids = ((riders ?? []) as Array<{ id: string }>).map((r) => r.id);
+    const num = Number(q);
+    const isNum = Number.isInteger(num);
+    if (ids.length && isNum) {
+      query = query.or(`rider_id.in.(${ids.join(',')}),trip_number.eq.${num}`);
+    } else if (ids.length) {
+      query = query.in('rider_id', ids);
+    } else if (isNum) {
+      query = query.eq('trip_number', num);
+    } else {
+      return res.json([]);
+    }
   }
-  res.json(rows);
+
+  const from = (p - 1) * TRIPS_PAGE_SIZE;
+  const { data } = await query
+    .order('created_at', { ascending: false })
+    .range(from, from + TRIPS_PAGE_SIZE - 1);
+  res.json(data ?? []);
 });
 
 adminRouter.get('/trips/:id', authenticate, async (req: Request, res: Response) => {
@@ -408,11 +481,32 @@ adminRouter.get('/trips/:id', authenticate, async (req: Request, res: Response) 
 });
 
 adminRouter.post('/trips/:id/status', authenticate, async (req: Request, res: Response) => {
-  const { status, reason } = req.body as { status?: string; reason?: string };
+  const { status, reason, resolution_note } = req.body as {
+    status?: string;
+    reason?: string;
+    resolution_note?: string;
+  };
   const allowed = ['cancelled', 'completed', 'disputed', 'expired', 'open'];
   if (!status || !allowed.includes(status)) {
     return res.status(400).json({ error: `status must be one of ${allowed.join(', ')}` });
   }
+
+  const id = String(req.params.id);
+  const before = await getTrip(id);
+  if (!before) return res.status(404).json({ error: 'trip not found' });
+
+  // Reopening is not a status flip: reset the trip and re-dispatch. A plain
+  // flip would bring a finished trip back `open` with `leads_dispatched` still
+  // set and nobody told, blocking the rider on a trip no driver can quote.
+  if (status === 'open') {
+    if (before.status !== 'open') {
+      const ok = await reopenTrip(before);
+      if (!ok) return res.status(500).json({ error: 'could not reopen trip' });
+    }
+    const { data } = await supabaseAdmin.from('trips').select().eq('id', id).single();
+    return res.json(data);
+  }
+
   const patch: Record<string, unknown> = { status };
   if (status === 'cancelled') {
     patch.cancelled_at = new Date().toISOString();
@@ -420,13 +514,23 @@ adminRouter.post('/trips/:id/status', authenticate, async (req: Request, res: Re
     patch.cancel_reason = reason ?? null;
   }
   if (status === 'completed') patch.completed_at = new Date().toISOString();
+  const note = typeof resolution_note === 'string' ? resolution_note.trim().slice(0, 500) : '';
+  if (note) patch.resolution_note = note;
+
   const { data, error } = await supabaseAdmin
     .from('trips')
     .update(patch)
-    .eq('id', req.params.id)
+    .eq('id', id)
     .select()
     .single();
   if (error) return res.status(400).json({ error: error.message });
+
+  // Leaving `disputed` is the office's ruling. Record it (so it is auditable)
+  // and tell the rider, who is otherwise left wondering and blocked.
+  if (before.status === 'disputed' && (status === 'completed' || status === 'cancelled')) {
+    await resolveDispute(before, status, note);
+  }
+
   res.json(data);
 });
 
@@ -490,7 +594,7 @@ adminRouter.post('/sessions/:phone/reset', authenticate, async (req: Request, re
 adminRouter.get('/recover/:phone', authenticate, async (req: Request, res: Response) => {
   const phone = String(req.params.phone);
 
-  const [sessionRes, riderRes, driverRes, helpRes] = await Promise.all([
+  const [sessionRes, riderRes, driverRes, helpRes, override] = await Promise.all([
     supabaseAdmin.from('conversation_sessions').select('*').eq('phone', phone).maybeSingle(),
     supabaseAdmin.from('riders').select('id, name').eq('phone', phone).maybeSingle(),
     supabaseAdmin.from('drivers').select('id, name, approval_status').eq('phone', phone).maybeSingle(),
@@ -499,6 +603,7 @@ adminRouter.get('/recover/:phone', authenticate, async (req: Request, res: Respo
       .select('id, source, opened_at')
       .eq('phone', phone)
       .is('closed_at', null),
+    getRoleOverride(phone),
   ]);
 
   const session = sessionRes.data as Record<string, unknown> | null;
@@ -506,15 +611,22 @@ adminRouter.get('/recover/:phone', authenticate, async (req: Request, res: Respo
   const driver = driverRes.data as { id: string; name: string | null } | null;
 
   // A live trip blocks a new booking via one_active_trip_per_rider / _driver.
+  // The rider is blocked by an unconfirmed `in_progress` trip and by `disputed`;
+  // the driver is freed at DONE (`done_at` set) and by a dispute.
   let blockingTrip: Record<string, unknown> | null = null;
   const ownerId = rider?.id ?? driver?.id;
   if (ownerId) {
     const col = rider ? 'rider_id' : 'driver_id';
-    const { data } = await supabaseAdmin
+    const statuses = rider
+      ? ['open', 'assigned', 'arrived', 'in_progress', 'disputed']
+      : ['assigned', 'arrived', 'in_progress'];
+    let blockingQuery = supabaseAdmin
       .from('trips')
       .select('id, trip_number, status, created_at')
       .eq(col, ownerId)
-      .in('status', ['open', 'assigned', 'arrived', 'in_progress', 'disputed'])
+      .in('status', statuses);
+    if (!rider) blockingQuery = blockingQuery.is('done_at', null);
+    const { data } = await blockingQuery
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -537,6 +649,7 @@ adminRouter.get('/recover/:phone', authenticate, async (req: Request, res: Respo
     session,
     rider,
     driver,
+    role_override: override,
     help_open: helpRes.data ?? [],
     blocking_trip: blockingTrip,
     problems,
@@ -602,6 +715,17 @@ adminRouter.post('/help/:id/close', authenticate, async (req: Request, res: Resp
   res.json(data);
 });
 
+adminRouter.post('/help/:id/reopen', authenticate, async (req: Request, res: Response) => {
+  const { data, error } = await supabaseAdmin
+    .from('help_requests')
+    .update({ closed_at: null, closed_by: null })
+    .eq('id', req.params.id)
+    .select()
+    .single();
+  if (error) return res.status(400).json({ error: error.message });
+  res.json(data);
+});
+
 adminRouter.get('/events', authenticate, async (req: Request, res: Response) => {
   const { trip_id } = req.query as Record<string, string | undefined>;
   let query = supabaseAdmin.from('events').select('*').order('at', { ascending: false }).limit(200);
@@ -630,27 +754,9 @@ adminRouter.get('/settings', authenticate, async (_req: Request, res: Response) 
 });
 
 adminRouter.put('/settings', authenticate, async (req: Request, res: Response) => {
-  const b = req.body as Record<string, unknown>;
-  const allowed = [
-    'quote_window_minutes',
-    'max_drivers_per_lead',
-    'default_radius_km',
-    'radius_options',
-    'auto_pick_cheapest',
-    'fare_check_enabled',
-    'trial_days',
-    'trial_min_rides',
-    'dispute_hours',
-    'scheduled_lead_hours',
-    'subscription_price_paise',
-    'renewal_contact',
-    'helpline',
-    'office_number',
-    'lead_template',
-    'kyc_approved_template',
-  ];
-  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  for (const k of allowed) if (k in b) patch[k] = b[k];
+  const { patch, error: validationError } = buildSettingsPatch(req.body as Record<string, unknown>);
+  if (validationError) return res.status(400).json({ error: validationError });
+
   const { data, error } = await supabaseAdmin
     .from('settings')
     .update(patch)
@@ -681,13 +787,23 @@ adminRouter.get('/analytics/funnel', authenticate, async (_req: Request, res: Re
   });
 });
 
-adminRouter.get('/analytics/drivers', authenticate, async (_req: Request, res: Response) => {
+adminRouter.get('/analytics/drivers', authenticate, async (req: Request, res: Response) => {
+  const { days } = req.query as Record<string, string | undefined>;
+  const window = Math.min(Math.max(Number(days ?? 30) || 30, 1), 365);
+  const since = new Date(Date.now() - window * 86_400_000).toISOString();
+
   const { data: drivers } = await supabaseAdmin
     .from('drivers')
     .select('id, name, phone, vehicle_no, approval_status, subscription_until, rating_avg')
     .eq('approval_status', 'approved');
-  const { data: dispatches } = await supabaseAdmin.from('lead_dispatches').select('driver_id');
-  const { data: quotes } = await supabaseAdmin.from('quotes').select('driver_id, status');
+  const { data: dispatches } = await supabaseAdmin
+    .from('lead_dispatches')
+    .select('driver_id')
+    .gte('sent_at', since);
+  const { data: quotes } = await supabaseAdmin
+    .from('quotes')
+    .select('driver_id, status')
+    .gte('created_at', since);
 
   const leadsBy = new Map<string, number>();
   for (const d of (dispatches ?? []) as Array<{ driver_id: string }>) {
@@ -736,10 +852,14 @@ adminRouter.post('/analytics/rollup', authenticate, async (req: Request, res: Re
   res.json({ ok: true, day: target });
 });
 
-adminRouter.get('/analytics/areas', authenticate, async (_req: Request, res: Response) => {
+adminRouter.get('/analytics/areas', authenticate, async (req: Request, res: Response) => {
+  const { days } = req.query as Record<string, string | undefined>;
+  const window = Math.min(Math.max(Number(days ?? 30) || 30, 1), 365);
+  const since = new Date(Date.now() - window * 86_400_000).toISOString();
   const { data: trips } = await supabaseAdmin
     .from('trips')
-    .select('id, status, pickup_lat, pickup_lng');
+    .select('id, status, pickup_lat, pickup_lng')
+    .gte('created_at', since);
   const rows = (trips ?? []) as Array<{
     id: string;
     status: string;

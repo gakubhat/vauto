@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getSessions, resetSession } from './api';
+import { Notice, useApi } from './ui';
 
 interface Session {
   phone: string;
@@ -12,18 +13,14 @@ interface Session {
 }
 
 export function Sessions() {
-  const [rows, setRows] = useState<Session[]>([]);
+  const { data, error, loading, reload } = useApi<Session[]>(
+    () => getSessions() as Promise<Session[]>,
+  );
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
 
-  async function load() {
-    void getSessions().then((r) => setRows(r as Session[]));
-  }
-
-  useEffect(() => {
-    void load();
-  }, []);
+  const rows = data ?? [];
 
   /** Reset one person without leaving the page - this is the debugger. */
   async function reset(phone: string) {
@@ -33,7 +30,7 @@ export function Sessions() {
     try {
       const r = (await resetSession(phone, 'idle')) as { note?: string };
       setNote(`${phone}: ${r.note ?? 'reset'}`);
-      await load();
+      await reload();
     } catch (e) {
       setNote(`${phone}: ${(e as Error).message}`);
     }
@@ -68,58 +65,62 @@ export function Sessions() {
           onChange={(e) => setFilter(e.target.value)}
           style={{ width: 260 }}
         />
-        <button onClick={() => void load()}>Refresh</button>
+        <button onClick={() => void reload()}>Refresh</button>
         {note && <span className="muted">{note}</span>}
       </div>
 
-      <table>
-        <thead>
-          <tr>
-            <th>Phone</th>
-            <th>Role</th>
-            <th>State</th>
-            <th>Trip</th>
-            <th>Data</th>
-            <th>Updated</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {shown.map((s) => {
-            const stale = Date.now() - new Date(s.updated_at).getTime() > 60 * 60 * 1000;
-            return (
-              <tr key={s.phone}>
-                <td>
-                  <Link to={`/recover/${encodeURIComponent(s.phone)}`}>{s.phone}</Link>
-                </td>
-                <td>{s.role ?? '—'}</td>
-                <td>
-                  {s.state}
-                  {STUCK.includes(s.state) && <span className="badge warn"> may be stuck</span>}
-                  {stale && <span className="badge warn"> stale &gt;1h</span>}
-                </td>
-                <td>{s.current_trip_id ? s.current_trip_id.slice(0, 8) : '—'}</td>
-                <td>
-                  <pre>{JSON.stringify(s.data)}</pre>
-                </td>
-                <td>{new Date(s.updated_at).toLocaleTimeString()}</td>
-                <td>
-                  <button disabled={busy === s.phone} onClick={() => void reset(s.phone)}>
-                    {busy === s.phone ? '…' : 'Reset'}
-                  </button>
+      <Notice error={error} loading={loading} onRetry={reload} />
+
+      {data && (
+        <table>
+          <thead>
+            <tr>
+              <th>Phone</th>
+              <th>Role</th>
+              <th>State</th>
+              <th>Trip</th>
+              <th>Data</th>
+              <th>Updated</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((s) => {
+              const stale = Date.now() - new Date(s.updated_at).getTime() > 60 * 60 * 1000;
+              return (
+                <tr key={s.phone}>
+                  <td>
+                    <Link to={`/recover/${encodeURIComponent(s.phone)}`}>{s.phone}</Link>
+                  </td>
+                  <td>{s.role ?? '—'}</td>
+                  <td>
+                    {s.state}
+                    {STUCK.includes(s.state) && <span className="badge warn"> may be stuck</span>}
+                    {stale && <span className="badge warn"> stale &gt;1h</span>}
+                  </td>
+                  <td>{s.current_trip_id ? s.current_trip_id.slice(0, 8) : '—'}</td>
+                  <td>
+                    <pre>{JSON.stringify(s.data)}</pre>
+                  </td>
+                  <td>{new Date(s.updated_at).toLocaleTimeString()}</td>
+                  <td>
+                    <button disabled={busy === s.phone} onClick={() => void reset(s.phone)}>
+                      {busy === s.phone ? '…' : 'Reset'}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+            {shown.length === 0 && (
+              <tr>
+                <td colSpan={7} className="muted">
+                  {rows.length === 0 ? 'No active sessions.' : 'Nothing matches that filter.'}
                 </td>
               </tr>
-            );
-          })}
-          {shown.length === 0 && (
-            <tr>
-              <td colSpan={7} className="muted">
-                {rows.length === 0 ? 'No active sessions.' : 'Nothing matches that filter.'}
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+            )}
+          </tbody>
+        </table>
+      )}
     </>
   );
 }

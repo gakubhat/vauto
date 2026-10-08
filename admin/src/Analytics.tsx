@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
 import { getAreas, getDriverStats, getFunnel } from './api';
+import { Notice, useApi } from './ui';
 
 interface Funnel {
   trips: number;
@@ -25,50 +25,58 @@ interface AreaRow {
   unclaimed: number;
 }
 
-export function Analytics() {
-  const [funnel, setFunnel] = useState<Funnel | null>(null);
-  const [drivers, setDrivers] = useState<DriverRow[]>([]);
-  const [areas, setAreas] = useState<AreaRow[]>([]);
+interface AnalyticsData {
+  funnel: Funnel;
+  drivers: DriverRow[];
+  areas: AreaRow[];
+}
 
-  useEffect(() => {
-    void Promise.all([getFunnel(), getDriverStats(), getAreas()]).then(([f, d, a]) => {
-      setFunnel(f as Funnel);
-      setDrivers(d as DriverRow[]);
-      setAreas(a as AreaRow[]);
-    });
-  }, []);
+export function Analytics() {
+  const { data, error, loading, reload } = useApi<AnalyticsData>(async () => {
+    const [f, d, a] = await Promise.all([getFunnel(), getDriverStats(30), getAreas(30)]);
+    return { funnel: f as Funnel, drivers: d as DriverRow[], areas: a as AreaRow[] };
+  });
+
+  if (!data) {
+    return (
+      <>
+        <h1>Analytics</h1>
+        <Notice error={error} loading={loading} onRetry={reload} />
+      </>
+    );
+  }
+
+  const { funnel, drivers, areas } = data;
 
   return (
     <>
-      <h1>Analytics — last 7 days</h1>
+      <h1>Analytics</h1>
 
-      <h2>Funnel</h2>
-      {funnel && (
-        <div className="cards">
-          <div className="card">
-            <div className="n">{funnel.trips}</div>
-            <div className="l">Trips</div>
-          </div>
-          <div className="card">
-            <div className="n">{funnel.got_quote}</div>
-            <div className="l">Got a quote</div>
-          </div>
-          <div className="card">
-            <div className="n">{funnel.assigned}</div>
-            <div className="l">Assigned</div>
-          </div>
-          <div className="card">
-            <div className="n">{funnel.completed}</div>
-            <div className="l">Completed</div>
-          </div>
-          <div className="card">
-            <div className="n">{funnel.unclaimed}</div>
-            <div className="l">Unclaimed</div>
-          </div>
+      <h2>Funnel — last 7 days</h2>
+      <div className="cards">
+        <div className="card">
+          <div className="n">{funnel.trips}</div>
+          <div className="l">Trips</div>
         </div>
-      )}
+        <div className="card">
+          <div className="n">{funnel.got_quote}</div>
+          <div className="l">Got a quote</div>
+        </div>
+        <div className="card">
+          <div className="n">{funnel.assigned}</div>
+          <div className="l">Assigned</div>
+        </div>
+        <div className="card">
+          <div className="n">{funnel.completed}</div>
+          <div className="l">Completed</div>
+        </div>
+        <div className="card">
+          <div className="n">{funnel.unclaimed}</div>
+          <div className="l">Unclaimed</div>
+        </div>
+      </div>
 
-      <h2>Driver response rate</h2>
+      <h2>Driver response rate — last 30 days</h2>
       <table>
         <thead>
           <tr>
@@ -94,7 +102,7 @@ export function Analytics() {
         </tbody>
       </table>
 
-      <h2>Demand by pickup area</h2>
+      <h2>Demand by pickup area — last 30 days</h2>
       <table>
         <thead>
           <tr>

@@ -63,7 +63,10 @@ async function notifyOffice(opts: {
 /**
  * A person asked for a human. Idempotent per phone: a second "help" while one is
  * still open does not bury the office in duplicates - it is the same person
- * waiting. Returns the request id, or null if the write failed.
+ * waiting. A **dispute** outranks a plain help request, though, so it escalates
+ * the open row to `dispute` and alerts the office once instead of being
+ * swallowed by the one-open-request rule. Returns the request id, or null if
+ * the write failed.
  */
 export async function openHelpRequest(opts: {
   phone: string;
@@ -77,11 +80,37 @@ export async function openHelpRequest(opts: {
 
   const { data: existing } = await supabaseAdmin
     .from('help_requests')
-    .select('id')
+    .select('id, source, trip_id')
     .eq('phone', phone)
     .is('closed_at', null)
     .maybeSingle();
-  if (existing) return (existing as { id: string }).id;
+  if (existing) {
+    const row = existing as { id: string; source: HelpSource; trip_id: string | null };
+    if (source === 'dispute' && row.source !== 'dispute') {
+      const patch: Record<string, unknown> = { source: 'dispute' };
+      if (reason) patch.reason = reason;
+      if (!row.trip_id && tripId) patch.trip_id = tripId;
+      const { error } = await supabaseAdmin.from('help_requests').update(patch).eq('id', row.id);
+      if (error) {
+        console.error('[HELP ESCALATE ERROR]', phone, error.message);
+        return row.id;
+      }
+      recordEvent('help_requested', {
+        actorRole: role,
+        tripId: tripId ?? row.trip_id ?? null,
+        properties: { source, reason: reason ?? null, escalated: true },
+      });
+      await notifyOffice({
+        source,
+        role,
+        phone,
+        name: name ?? null,
+        tripId: tripId ?? row.trip_id ?? null,
+        reason,
+      });
+    }
+    return row.id;
+  }
 
   const id = uuid();
   const { error } = await supabaseAdmin.from('help_requests').insert({

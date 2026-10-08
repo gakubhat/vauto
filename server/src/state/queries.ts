@@ -6,12 +6,23 @@ export interface Settings {
   max_drivers_per_lead: number;
   default_radius_km: number;
   radius_options: number[];
+  scheduling_enabled: boolean;
   auto_pick_cheapest: boolean;
   fare_check_enabled: boolean;
   trial_days: number;
   trial_min_rides: number;
   dispute_hours: number;
   scheduled_lead_hours: number;
+  quiet_hours_start: number;
+  quiet_hours_end: number;
+  evening_dispatch_hour: number;
+  scheduled_confirm_minutes: number;
+  pick_deadline_minutes: number;
+  lead_stage_size: number;
+  lead_stage_interval_minutes: number;
+  lead_stage_expand_below: number;
+  template_leads_per_driver_per_day: number;
+  lead_warm_band_km: number;
   subscription_price_paise: number;
   renewal_contact: string | null;
   helpline: string | null;
@@ -98,9 +109,23 @@ export interface Trip {
   started_at: string | null;
   done_at: string | null;
   completed_at: string | null;
+  pick_deadline_at: string | null;
+  next_lead_batch_at: string | null;
 }
 
 const ACTIVE_STATUSES = ['open', 'assigned', 'arrived', 'in_progress', 'disputed'];
+
+/**
+ * A trip only blocks its driver while he is actually on it. Once he sends DONE
+ * (`done_at` is set) the ride is over for him, so he must be free for new leads
+ * even though the trip stays `in_progress` until the rider confirms or the 24h
+ * silence turns it into `disputed`. A `disputed` trip must not block him
+ * either: the dispute is between the rider and the office, and holding him out
+ * of the pool would punish him for a fare the office has not even ruled on.
+ * The rider, by contrast, is blocked by `disputed` and by an unconfirmed
+ * `in_progress` trip, so `ACTIVE_STATUSES` above is deliberately left alone.
+ */
+const DRIVER_ACTIVE_STATUSES = ['open', 'assigned', 'arrived', 'in_progress'];
 
 export async function getRiderByPhone(phone: string): Promise<Rider | null> {
   const { data } = await supabaseAdmin.from('riders').select('*').eq('phone', phone).maybeSingle();
@@ -128,6 +153,97 @@ export async function ensureDriver(phone: string): Promise<Driver> {
   return (await getDriverByPhone(phone)) as Driver;
 }
 
+/**
+ * The office can force a phone onto one flow when the Rider/Driver choice was
+ * wrong. This is consulted before the tables because the session row (which
+ * would otherwise carry the role) is deleted by the 24h cleanup.
+ */
+export async function getRoleOverride(phone: string): Promise<'rider' | 'driver' | null> {
+  const { data } = await supabaseAdmin
+    .from('role_overrides')
+    .select('role')
+    .eq('phone', phone)
+    .maybeSingle();
+  return ((data as { role: 'rider' | 'driver' } | null)?.role) ?? null;
+}
+
+/** Which flow the tables alone would resolve this phone to. */
+async function naturalRole(phone: string): Promise<'rider' | 'driver' | null> {
+  if (await getDriverByPhone(phone)) return 'driver';
+  if (await getRiderByPhone(phone)) return 'rider';
+  return null;
+}
+
+/** Remove a role row if nothing depends on it, so clearing an override can
+ *  actually revert. If the flow has been used, the row is kept deliberately. */
+async function removeRoleRowIfUnused(phone: string, role: 'rider' | 'driver'): Promise<void> {
+  const count = async (table: string, column: string, id: string): Promise<number> => {
+    const { count: n } = await supabaseAdmin
+      .from(table)
+      .select('id', { count: 'exact', head: true })
+      .eq(column, id);
+    return n ?? 0;
+  };
+
+  if (role === 'driver') {
+    const driver = await getDriverByPhone(phone);
+    if (!driver) return;
+    const used =
+      (await count('trips', 'driver_id', driver.id)) +
+      (await count('quotes', 'driver_id', driver.id)) +
+      (await count('lead_dispatches', 'driver_id', driver.id)) +
+      (await count('subscriptions', 'driver_id', driver.id));
+    if (used === 0) await supabaseAdmin.from('drivers').delete().eq('id', driver.id);
+    return;
+  }
+
+  const rider = await getRiderByPhone(phone);
+  if (!rider) return;
+  if ((await count('trips', 'rider_id', rider.id)) === 0) {
+    await supabaseAdmin.from('riders').delete().eq('id', rider.id);
+  }
+}
+
+export async function setRoleOverride(
+  phone: string,
+  role: 'rider' | 'driver',
+  setBy: string,
+): Promise<void> {
+  const { data: existing } = await supabaseAdmin
+    .from('role_overrides')
+    .select('previous_role')
+    .eq('phone', phone)
+    .maybeSingle();
+  const previous =
+    (existing as { previous_role: string | null } | null)?.previous_role ??
+    (await naturalRole(phone));
+
+  const { error } = await supabaseAdmin.from('role_overrides').upsert({
+    phone,
+    role,
+    previous_role: previous,
+    set_at: new Date().toISOString(),
+    set_by: setBy,
+  });
+  if (error) console.error('[ROLE OVERRIDE ERROR]', phone, error.message);
+}
+
+export async function clearRoleOverride(phone: string): Promise<void> {
+  const { data } = await supabaseAdmin
+    .from('role_overrides')
+    .select('role, previous_role')
+    .eq('phone', phone)
+    .maybeSingle();
+  const row = data as { role: 'rider' | 'driver'; previous_role: 'rider' | 'driver' | null } | null;
+
+  await supabaseAdmin.from('role_overrides').delete().eq('phone', phone);
+
+  // Undo the companion row the override created, but only if it was never used.
+  if (row?.previous_role && row.previous_role !== row.role) {
+    await removeRoleRowIfUnused(phone, row.role);
+  }
+}
+
 export async function getTrip(tripId: string): Promise<Trip | null> {
   const { data } = await supabaseAdmin.from('trips').select('*').eq('id', tripId).maybeSingle();
   return (data as Trip | null) ?? null;
@@ -150,16 +266,21 @@ export async function getActiveTripForDriver(driverId: string): Promise<Trip | n
     .from('trips')
     .select('*')
     .eq('driver_id', driverId)
-    .in('status', ACTIVE_STATUSES)
+    .in('status', DRIVER_ACTIVE_STATUSES)
+    .is('done_at', null)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
   return (data as Trip | null) ?? null;
 }
 
-export async function updateTrip(tripId: string, patch: Record<string, unknown>): Promise<void> {
+export async function updateTrip(tripId: string, patch: Record<string, unknown>): Promise<boolean> {
   const { error } = await supabaseAdmin.from('trips').update(patch).eq('id', tripId);
-  if (error) console.error('[TRIP UPDATE ERROR]', tripId, error.message);
+  if (error) {
+    console.error('[TRIP UPDATE ERROR]', tripId, error.message);
+    return false;
+  }
+  return true;
 }
 
 export async function getRiderById(id: string): Promise<Rider | null> {

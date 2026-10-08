@@ -1,62 +1,96 @@
-import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { getStats } from './api';
+import { Notice, useApi } from './ui';
+
+interface Stats {
+  trips_today: number;
+  completed_today: number;
+  expired_today: number;
+  unclaimed_rate: number;
+  median_seconds_to_first_quote: number | null;
+  pending_kyc: number;
+  active_drivers: number;
+  disputed_open: number;
+  help_open: number;
+  riders_total: number;
+}
+
+function Card({
+  n,
+  label,
+  to,
+  tone,
+  hint,
+}: {
+  n: number | string;
+  label: string;
+  to?: string;
+  tone?: 'warn' | 'bad';
+  hint?: string;
+}) {
+  const body = (
+    <div className={`card${to ? ' link' : ''}`} title={hint}>
+      <div className={`n${tone ? ` ${tone}` : ''}`}>{n}</div>
+      <div className="l">{label}</div>
+    </div>
+  );
+  return to ? <Link to={to}>{body}</Link> : body;
+}
 
 export function Dashboard() {
-  const [stats, setStats] = useState<Record<string, number | null> | null>(null);
+  const { data: stats, error, loading, reload } = useApi<Stats>(() => getStats() as Promise<Stats>);
 
-  useEffect(() => {
-    getStats().then(setStats).catch(() => setStats(null));
-  }, []);
+  if (!stats) {
+    return (
+      <>
+        <h1>Dashboard — last 24 hours</h1>
+        <Notice error={error} loading={loading} onRetry={reload} />
+      </>
+    );
+  }
 
-  if (!stats) return <p>Loading…</p>;
+  const needsAction = stats.pending_kyc + stats.disputed_open + stats.help_open;
 
   return (
     <>
       <h1>Dashboard — last 24 hours</h1>
+
+      {needsAction > 0 && (
+        <p className="notice-bad">
+          {needsAction} item{needsAction === 1 ? '' : 's'} need the office:{' '}
+          {stats.pending_kyc > 0 && (
+            <Link to="/drivers?approval=pending">{stats.pending_kyc} pending KYC</Link>
+          )}
+          {stats.pending_kyc > 0 && (stats.disputed_open > 0 || stats.help_open > 0) && ' · '}
+          {stats.disputed_open > 0 && (
+            <Link to="/trips?status=disputed">{stats.disputed_open} disputed</Link>
+          )}
+          {stats.disputed_open > 0 && stats.help_open > 0 && ' · '}
+          {stats.help_open > 0 && <Link to="/help">{stats.help_open} waiting for help</Link>}
+        </p>
+      )}
+
       <div className="cards">
-        <div className="card">
-          <div className="n">{stats.trips_today as number}</div>
-          <div className="l">Trips</div>
-        </div>
-        <div className="card">
-          <div className="n">{stats.completed_today as number}</div>
-          <div className="l">Completed</div>
-        </div>
-        <div className="card">
-          <div className="n">{stats.unclaimed_rate as number}%</div>
-          <div className="l">Unclaimed</div>
-        </div>
-        <div className="card">
-          <div className="n">
-            {stats.median_seconds_to_first_quote === null
+        <Card n={stats.trips_today} label="Trips" to="/trips" />
+        <Card n={stats.completed_today} label="Completed" to="/trips?status=completed" />
+        <Card n={`${stats.unclaimed_rate}%`} label="Unclaimed" to="/analytics" hint="Trips that got no quote" />
+        <Card
+          n={
+            stats.median_seconds_to_first_quote === null
               ? '—'
-              : `${Math.round((stats.median_seconds_to_first_quote as number) / 60)}m`}
-          </div>
-          <div className="l">Median to first quote</div>
-        </div>
-        <div className="card">
-          <div className="n">{stats.pending_kyc as number}</div>
-          <div className="l">Pending KYC</div>
-        </div>
-        <div className="card">
-          <div className="n">{stats.disputed_open as number}</div>
-          <div className="l">Disputed</div>
-        </div>
-        <div className="card">
-          <div className="n">{stats.help_open as number}</div>
-          <div className="l">Waiting for help</div>
-        </div>
-        <div className="card">
-          <div className="n">{stats.active_drivers as number}</div>
-          <div className="l">Approved drivers</div>
-        </div>
-        <div className="card">
-          <div className="n">{stats.riders_total as number}</div>
-          <div className="l">Riders</div>
-        </div>
+              : `${Math.round(stats.median_seconds_to_first_quote / 60)}m`
+          }
+          label="Median to first quote"
+        />
+        <Card n={stats.pending_kyc} label="Pending KYC" to="/drivers?approval=pending" tone={stats.pending_kyc > 0 ? 'warn' : undefined} />
+        <Card n={stats.disputed_open} label="Disputed" to="/trips?status=disputed" tone={stats.disputed_open > 0 ? 'bad' : undefined} />
+        <Card n={stats.help_open} label="Waiting for help" to="/help" tone={stats.help_open > 0 ? 'warn' : undefined} />
+        <Card n={stats.active_drivers} label="Approved drivers" to="/drivers" />
+        <Card n={stats.riders_total} label="Riders" to="/riders" />
       </div>
       <p className="muted">
-        Unclaimed is the share of trips that got no quote at all — your supply gaps.
+        Unclaimed is the share of trips that got no quote at all — your supply gaps. Cards with a
+        coloured number link to the queue that needs attention.
       </p>
     </>
   );

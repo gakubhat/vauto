@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
-import { getRider, patchRider } from './api';
+import { useParams, Link } from 'react-router-dom';
+import { getRider, patchRider, setRiderRole } from './api';
 import { DeleteUserButton } from './DeleteUserButton';
+import { Notice, useApi } from './ui';
 import { RecoverPanel } from './RecoverPanel';
 
 interface RiderDetailData {
@@ -14,56 +15,70 @@ interface RiderDetailData {
   home_text: string | null;
   rating_avg: number;
   rating_count: number;
+  role_override: 'rider' | 'driver' | null;
   trips: Array<{ id: string; trip_number: number; status: string; created_at: string; quoted_amount_paise: number | null }>;
 }
 
 export function RiderDetail() {
   const { id } = useParams();
-  const [r, setR] = useState<RiderDetailData | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [language, setLanguage] = useState('kannada');
-  const navigate = useNavigate();
+  const { data: r, error, loading, reload } = useApi<RiderDetailData>(
+    () => getRider(id as string) as Promise<RiderDetailData>,
+    [id],
+  );
 
-  async function load() {
-    setLoadError(null);
-    try {
-      const row = (await getRider(id as string)) as RiderDetailData;
-      setR(row);
-      setLanguage(row.preferred_language === 'english' ? 'english' : 'kannada');
-    } catch (e) {
-      setLoadError((e as Error).message || 'Not found');
-      setR(null);
-    }
-  }
+  const [name, setName] = useState('');
+  const [homeLat, setHomeLat] = useState('');
+  const [homeLng, setHomeLng] = useState('');
+  const [homeText, setHomeText] = useState('');
+  const [language, setLanguage] = useState('kannada');
 
   useEffect(() => {
-    void load();
-  }, [id]);
+    if (!r) return;
+    setName(r.name ?? '');
+    setHomeLat(r.home_lat !== null ? String(r.home_lat) : '');
+    setHomeLng(r.home_lng !== null ? String(r.home_lng) : '');
+    setHomeText(r.home_text ?? '');
+    setLanguage(r.preferred_language === 'english' ? 'english' : 'kannada');
+  }, [r]);
 
-  if (loadError) {
+  if (!r) {
     return (
       <>
-        <h1>Rider not found</h1>
-        <p className="muted">{loadError}</p>
-        <p className="muted">
-          The record no longer exists. Note that running the test suite wipes the
-          database, so anything created before a test run is gone.
-        </p>
-        <button onClick={() => navigate('/riders')}>Back to riders</button>
+        <h1>Rider</h1>
+        <Notice error={error} loading={loading} onRetry={reload} />
       </>
     );
   }
 
-  if (!r) return <p>Loading…</p>;
-
-  async function saveLanguage() {
+  async function act(fn: () => Promise<unknown>) {
     try {
-      await patchRider(r!.id, { preferred_language: language });
+      await fn();
     } catch (e) {
       alert((e as Error).message);
       return;
     }
-    void load();
+    void reload();
+  }
+
+  async function saveHome(riderId: string) {
+    const lat = homeLat.trim() === '' ? null : Number(homeLat);
+    const lng = homeLng.trim() === '' ? null : Number(homeLng);
+    if ((lat === null) !== (lng === null)) {
+      alert('Enter both latitude and longitude, or neither.');
+      return;
+    }
+    if ((lat !== null && !Number.isFinite(lat)) || (lng !== null && !Number.isFinite(lng))) {
+      alert('Latitude and longitude must be numbers.');
+      return;
+    }
+    await act(() =>
+      patchRider(riderId, {
+        name,
+        home_lat: lat,
+        home_lng: lng,
+        home_text: homeText.trim() === '' ? null : homeText.trim(),
+      }),
+    );
   }
 
   return (
@@ -72,12 +87,39 @@ export function RiderDetail() {
       <p className="muted">
         {r.phone} · {r.preferred_language} · rating {r.rating_avg.toFixed(1)} ({r.rating_count})
       </p>
-      <p className="muted">
-        Home:{' '}
-        {r.home_lat !== null && r.home_lng !== null
-          ? `${r.home_lat.toFixed(4)}, ${r.home_lng.toFixed(4)}`
-          : r.home_text ?? 'not set'}
-      </p>
+
+      <div className="panel">
+        <h2>Profile</h2>
+        <div className="row">
+          <label style={{ width: 90 }}>Name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="row">
+          <label style={{ width: 90 }}>Home lat</label>
+          <input value={homeLat} onChange={(e) => setHomeLat(e.target.value)} style={{ width: 120 }} />
+          <label>lng</label>
+          <input value={homeLng} onChange={(e) => setHomeLng(e.target.value)} style={{ width: 120 }} />
+        </div>
+        <div className="row">
+          <label style={{ width: 90 }}>Home label</label>
+          <input value={homeText} onChange={(e) => setHomeText(e.target.value)} />
+        </div>
+        <div className="row">
+          <button onClick={() => void saveHome(r.id)}>Save profile</button>
+          <span className="muted">Home is optional; it enables one-tap booking later.</span>
+        </div>
+        <div className="row">
+          <label style={{ width: 90 }}>Language</label>
+          <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+            <option value="kannada">ಕನ್ನಡ</option>
+            <option value="english">English</option>
+          </select>
+          <button onClick={() => void act(() => patchRider(r.id, { preferred_language: language }))}>
+            Save
+          </button>
+          <span className="muted">Takes effect on their next message.</span>
+        </div>
+      </div>
 
       <h2>Trips</h2>
       <table>
@@ -96,7 +138,7 @@ export function RiderDetail() {
                 <Link to={`/trips/${t.id}`}>{t.trip_number}</Link>
               </td>
               <td>{t.status}</td>
-              <td>{t.quoted_amount_paise ? `Rs ${Math.round(t.quoted_amount_paise / 100)}` : '—'}</td>
+              <td>{t.quoted_amount_paise ? `₹${Math.round(t.quoted_amount_paise / 100)}` : '—'}</td>
               <td>{new Date(t.created_at).toLocaleString()}</td>
             </tr>
           ))}
@@ -113,26 +155,28 @@ export function RiderDetail() {
       <RecoverPanel phone={r.phone} />
 
       <div className="panel">
-        <h2>Language</h2>
-        <div className="row">
-          <select value={language} onChange={(e) => setLanguage(e.target.value)}>
-            <option value="kannada">ಕನ್ನಡ</option>
-            <option value="english">English</option>
-          </select>
-          <button onClick={() => void saveLanguage()}>Save</button>
-          <span className="muted">
-            Takes effect on their next message — the bot reads it fresh from this record every time.
-          </span>
-        </div>
+        <h2>Role</h2>
+        {r.role_override ? (
+          <div className="row">
+            <span className="badge warn">pinned to {r.role_override}</span>
+            <button onClick={() => void act(() => setRiderRole(r.id, 'auto'))}>Clear override</button>
+            <span className="muted">Let the role resolve from the tables again.</span>
+          </div>
+        ) : (
+          <div className="row">
+            <button onClick={() => void act(() => setRiderRole(r.id, 'driver'))}>
+              Switch this phone to the driver flow
+            </button>
+            <span className="muted">Only for a wrong Rider/Driver choice. Sticks across session cleanup.</span>
+          </div>
+        )}
       </div>
 
       <div className="panel">
         <h2>Danger zone</h2>
         <div className="row">
           <DeleteUserButton kind="rider" id={r.id} name={r.name ?? ''} />
-          <span className="muted">
-            Removes the rider, all of their trips, and everything attached to those trips.
-          </span>
+          <span className="muted">Removes the rider, all of their trips, and everything attached to those trips.</span>
         </div>
       </div>
     </>

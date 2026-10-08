@@ -141,10 +141,12 @@ Docs in this repo:
 cd server
 npm run dev              # API on :3000 (tsx watch)
 npm run build:all        # build admin, copy to server/public, start (one origin)
-npm test                 # vitest suites against the real DB
+npm test                 # fast, DB-free suites only (<1s)
+npm run test:all         # everything incl. DB flows (needs TEST_SUPABASE_* - see Testing rules)
+npm run test:flows       # DB flows only
 npm run sim -- --phone +919999000001 --as rider        # interactive REPL
 npm run sim -- --script scripts/rider-demo.txt         # scripted replay
-npm run sim -- --fresh   # wipe first
+npm run sim -- --fresh   # wipe first (needs TEST_SUPABASE_* - see Testing rules)
 npm run check:whatsapp   # validate the access token
 npm run tunnel           # ngrok + print Meta callback URL
 
@@ -157,12 +159,17 @@ npm run check:docs             # docs-vs-code drift guard (also runs in npm test
 
 ## Testing rules
 
-1. **Sequential, never parallel** — `fileParallelism: false`. Suites share one DB.
-2. **`truncateAll()`** in `beforeEach` and `afterAll`. It is destructive and
-   requires `ALLOW_DESTRUCTIVE_TESTS=true`. **Every table with an FK to a wiped
-   table must itself be wiped first** — `driver_daily` references `drivers`, so
-   if it is left out the `drivers` delete is rejected and every suite fails with
-   `driver_daily_driver_id_fkey`. Add new tables to `truncateAll()`.
+1. **Sequential, never parallel** — `fileParallelism: false`. Suites share one DB. `npm test` runs only the fast, DB-free suites (top-level `*.test.ts`); `npm run test:all` runs the DB flows too. New flow tests go in `tests/flows/`.
+2. **Never point the suites at live data.** `truncateAll()` wipes tables in
+   `beforeEach`/`afterAll`. Tests use `TEST_SUPABASE_URL` +
+   `TEST_SUPABASE_SERVICE_ROLE_KEY` (a throwaway project or dev branch) and
+   **refuse to wipe** when they are unset — `ALLOW_DESTRUCTIVE_TESTS=true` alone
+   is not enough. Running `npm test` against the live project deletes real
+   riders/drivers mid-conversation, which is what this guard prevents.
+   **Every table with an FK to a wiped table must itself be wiped first** —
+   `driver_daily` references `drivers`, so if it is left out the `drivers`
+   delete is rejected and every suite fails with `driver_daily_driver_id_fkey`.
+   Add new tables to `truncateAll()`.
 3. **Assert on state, DB and messages** — messages can look right while the
    state is wrong. Use `stateOf(phone)`.
 4. `sendMessage` is never called for real: `setupMockSendMessage()` installs a
