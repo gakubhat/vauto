@@ -1,0 +1,15 @@
+# Build outputs are rebuilt inside the image.
+**/node_modules
+**/dist
+server/public
+
+# Never ship secrets or VCS history into the build context.
+.git
+.gitignore
+.env
+.env.*
+
+# Noise.
+*.log
+.DS_Store
+docs

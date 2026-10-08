@@ -75,6 +75,7 @@ Docs in this repo:
 | `docs/admin.md` | Admin dashboard pages, API, settings |
 | `docs/testing.md` | Simulator CLI and vitest suites |
 | `docs/local-setup.md` | ngrok tunnel, Meta webhook config, debugging |
+| `docs/deploy.md` | Fly.io / Docker deployment, secrets, backups, Meta callback |
 
 ---
 
@@ -84,11 +85,18 @@ Docs in this repo:
 /
 ├── AGENTS.md                  <- you are here
 ├── .env                       (gitignored)  .env.example is the template
+├── Dockerfile                 multi-stage app image (admin + server)
+├── fly.toml                   Fly.io config - never scale to zero
+├── docker-compose.yml         VPS fallback (app + Caddy)
+├── deploy/
+│   ├── Caddyfile
+│   ├── backup.sh              nightly pg_dump
+│   └── heartbeat.sh           Supabase keep-alive
 ├── docs/
 │   ├── overview.md
 │   ├── flows/{rider,driver}.md
 │   ├── flows/transitions.json
-│   ├── admin.md  testing.md  local-setup.md
+│   ├── admin.md  testing.md  local-setup.md  deploy.md
 ├── scripts/
 │   ├── tunnel.sh              ngrok + Meta callback URL
 │   └── gen-diagrams.mjs       renders diagrams from transitions.json

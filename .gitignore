@@ -12,3 +12,6 @@ server/public/
 
 *.log
 .DS_Store
+
+# Nightly pg_dump output from deploy/backup.sh.
+backups/

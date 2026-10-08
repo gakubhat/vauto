@@ -1,0 +1,36 @@
+# VPS fallback: run the same image behind Caddy.
+#
+#   1. cp .env.example .env   and fill it in (see docs/deploy.md)
+#   2. DOMAIN=vauto.example.com docker compose up -d --build
+#
+# Caddy provisions TLS automatically once DOMAIN resolves to this host. Use this
+# instead of Fly.io when you want a plain box you fully control. The image is
+# identical, so switching later is just a re-deploy.
+
+services:
+  app:
+    build: .
+    image: vauto:local
+    env_file: .env
+    restart: unless-stopped
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

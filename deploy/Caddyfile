@@ -1,0 +1,8 @@
+# Reverse proxy for the VAuto container. Caddy provisions and renews TLS
+# automatically once DOMAIN resolves to this host - no certbot, no cron.
+#
+# The value comes from the DOMAIN environment variable in docker-compose.yml.
+# It defaults to "localhost", which serves a local self-signed certificate.
+{$DOMAIN:localhost} {
+	reverse_proxy app:3000
+}
