@@ -126,6 +126,20 @@ Supabase also emails a warning ~a week before a pause; watch for it.
 
 ## 7. Deploying updates
 
+One command builds everything, deploys and verifies:
+
+```bash
+cd server && npm run deploy      # or: bash scripts/deploy.sh
+```
+
+It runs a fast preflight (`tsc` + the DB-free suite), then `fly deploy` — which
+builds the admin and server from the Dockerfile — then checks the live `/health`
+and that the webhook rejects a bad token. Skipping the preflight is
+`--skip-checks`; overriding the app name is `--app <name>`. It never runs the
+destructive database flow suites.
+
+The raw commands, for reference:
+
 ```bash
 fly deploy                 # build + rolling restart
 fly releases               # list

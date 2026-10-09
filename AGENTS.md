@@ -149,6 +149,7 @@ Docs in this repo:
 cd server
 npm run dev              # API on :3000 (tsx watch)
 npm run build:all        # build admin, copy to server/public, start (one origin)
+npm run deploy           # build + deploy to Fly.io, then verify (see docs/deploy.md)
 npm test                 # fast, DB-free suites only (<1s)
 npm run test:all         # everything incl. DB flows (needs TEST_SUPABASE_* - see Testing rules)
 npm run test:flows       # DB flows only
