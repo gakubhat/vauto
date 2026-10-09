@@ -56,6 +56,37 @@ cd server && npm run check:whatsapp
 It reports the token type and expiry. `SYSTEM_USER` with `expires_at: NEVER` is
 what you want; a 60-day token expires silently and takes the bot down with it.
 
+## Running the admin locally against live data
+
+The dashboard is a static app that calls `/api/admin` on the API server, so it
+needs a backend. The deployed app and your `.env` point at the **same Supabase
+project** and share the same `JWT_SECRET`, so local and deployed admin sessions
+are interchangeable. Three ways to work, safest first:
+
+**Use the deployed dashboard** — `https://vauto.fly.dev` already reads and writes
+the same database. Nothing to run.
+
+**Local UI, deployed API** — run only the admin dev server, pointed at Fly:
+
+```bash
+cd admin
+VITE_API_TARGET=https://vauto.fly.dev npm run dev
+```
+
+Hot-reload against live data with a single backend.
+
+**Local API as well** — if you need to develop the server too:
+
+```bash
+cd server && SCHEDULER_ENABLED=false npm run dev
+```
+
+`SCHEDULER_ENABLED=false` matters. The 60s scheduler runs *inside* the server and
+must run in exactly one place. With the deployed app up, a local server that also
+ticks would run every scheduled dispatch and expiry twice — drivers get duplicate
+leads and you pay for them twice. Turn it off locally, or stop the deployed
+machine while you work (`fly scale count 0 -a vauto`, then `fly scale count 1`).
+
 ## 1. Prerequisites
 
 | Requirement | Check |

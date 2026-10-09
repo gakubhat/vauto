@@ -69,7 +69,13 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 if (require.main === module) {
   app.listen(config.port, () => {
     console.log(`v3-auto server listening on port ${config.port}`);
-    startScheduler();
+    if (config.schedulerEnabled) {
+      startScheduler();
+    } else {
+      console.warn(
+        '[SCHEDULER] disabled (SCHEDULER_ENABLED=false) - run exactly one instance with it on',
+      );
+    }
   });
 }
 

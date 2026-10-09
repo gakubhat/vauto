@@ -38,6 +38,9 @@ export const config = {
   port: optionalInt('PORT', 3000),
   logLevel: optional('LOG_LEVEL', 'debug'),
 
+  // Run the in-process 60s scheduler? It must run in exactly one instance.
+  schedulerEnabled: optionalBool('SCHEDULER_ENABLED', true),
+
   jwtSecret: required('JWT_SECRET'),
   adminPhone: required('ADMIN_PHONE'),
   adminPassword: required('ADMIN_PASSWORD'),
