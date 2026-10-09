@@ -203,7 +203,7 @@ const T: Record<string, Entry> = {
   },
   trip_status_open: { en: 'being booked', kn: 'ಬುಕ್ ಆಗುತ್ತಿದೆ' },
   trip_status_assigned: { en: 'assigned to a driver', kn: 'ಚಾಲಕರಿಗೆ ನಿಗದಿಯಾಗಿದೆ' },
-  trip_status_arrived: { en: 'waiting for your pickup code', kn: 'ನಿಮ್ಮ ಕೋಡ್ಗಾಗಿ ಕಾಯುತ್ತಿದೆ' },
+  trip_status_arrived: { en: 'waiting for your pickup code', kn: 'ನಿಮ್ಮ ಕೋಡ್-ಗಾಗಿ ಕಾಯುತ್ತಿದೆ' },
   trip_status_in_progress: { en: 'in progress', kn: 'ನಡೆಯುತ್ತಿದೆ' },
   trip_status_disputed: { en: 'disputed', kn: 'ವಿವಾದಿತ' },
   no_active_trip: { en: 'You have no active trip.', kn: 'ಯಾವುದೇ ಪ್ರಯಾಣ ಚಾಲ್ತಿಯಲ್ಲಿ ಇಲ್ಲ.' },
@@ -290,7 +290,7 @@ const T: Record<string, Entry> = {
   },
   quote_prompt: {
     en: 'How much will you charge? Reply with the amount in rupees, like 70.',
-    kn: 'ಎಷ್ಟು ತೆಗೆದುಕೊಳ್ಳುತ್ತೀರಿ? ರೂಪಾಯಿಯಲ್ಲಿ ಮೊತ್ತ ಕಳುಹಿಸಿ, ಉದಾ 70.',
+    kn: 'ಎಷ್ಟು ಬಾಡಿಗೆ ತೆಗೆದುಕೊಳ್ಳುತ್ತೀರಿ? ರೂಪಾಯಿಯಲ್ಲಿ ಮೊತ್ತ ಕಳುಹಿಸಿ, ಉದಾ 70.',
   },
   you_got_trip: {
     en: '*You got the trip* - {amount}\n\n*Rider* {rider}\n*Call* {phone}\n\n*Pickup*\n{pickup}',
