@@ -162,15 +162,13 @@ export async function handleDriverMessage(phone: string, input: DriverInput): Pr
       return (await gs(phone)) as Session;
     })();
     const d = fresh?.data ?? {};
-    await supabaseAdmin
-      .from('drivers')
-      .update({
-        kyc_aadhaar_url: (d.kyc_aadhaar_front_url as string) ?? null,
-        kyc_aadhaar_back_url: (d.kyc_aadhaar_back_url as string) ?? null,
-        kyc_selfie_url: input.imageUrl ?? null,
-        approval_status: 'pending',
-      })
-      .eq('id', driver.id);
+    // Only write the steps that produced an image. A skipped step must not
+    // erase a document the office uploaded while the driver was in the flow.
+    const patch: Record<string, unknown> = { approval_status: 'pending' };
+    if (d.kyc_aadhaar_front_url) patch.kyc_aadhaar_url = d.kyc_aadhaar_front_url;
+    if (d.kyc_aadhaar_back_url) patch.kyc_aadhaar_back_url = d.kyc_aadhaar_back_url;
+    if (input.imageUrl) patch.kyc_selfie_url = input.imageUrl;
+    await supabaseAdmin.from('drivers').update(patch).eq('id', driver.id);
     await resetSession(phone, { state: 'idle', role: 'driver' });
     await sendD(phone, tpl.kycSubmitted(lang), 'idle');
     return sendD(phone, tpl.pendingApproval(lang), 'idle');

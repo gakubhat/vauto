@@ -59,6 +59,39 @@ export const setApproval = (id: string, action: string) =>
 export const recordSubscription = (id: string, body: unknown) =>
   request(admin(`/drivers/${id}/subscription`), { method: 'POST', body: JSON.stringify(body) });
 
+/**
+ * Upload one KYC image. The file is the raw request body, so this cannot use
+ * request(), which always sends Content-Type: application/json.
+ */
+export async function uploadDriverKyc(id: string, slot: string, file: File): Promise<void> {
+  const res = await fetch(`${BASE}/admin/drivers/${id}/kyc/${slot}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${sessionStorage.getItem('token')}`,
+      'Content-Type': file.type || 'image/jpeg',
+    },
+    body: file,
+  });
+  if (res.status === 401) {
+    sessionStorage.removeItem('token');
+    window.location.reload();
+    throw new Error('Session expired');
+  }
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      message = ((await res.json()) as { error?: string }).error ?? message;
+    } catch {
+      /* keep statusText */
+    }
+    throw new Error(message);
+  }
+}
+
+/** Ask the driver to re-send their KYC documents on WhatsApp. */
+export const requestDriverKyc = (id: string) =>
+  request(admin(`/drivers/${id}/request-kyc`), { method: 'POST' });
+
 /** Force a phone onto one flow, or 'auto' to clear the override. */
 export const setDriverRole = (id: string, role: string) =>
   request(admin(`/drivers/${id}/role`), { method: 'POST', body: JSON.stringify({ role }) });

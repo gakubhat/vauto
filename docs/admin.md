@@ -81,13 +81,15 @@ phone number from a call.
 |---|---|---|
 | Identity | Name, auto number, Aadhaar number, auto-verified flag, language | Edit any; *Mark verified* stamps `vehicle_verified_at` |
 | Coverage | Base location (map link + coords), radius | Edit base location, change radius |
-| KYC | Aadhaar front/back, selfie, submitted date | **Approve / Reject / Suspend** |
+| KYC | Aadhaar front/back, selfie, submitted date | **Approve / Reject / Suspend**; **upload** a document the driver skipped; **ask the driver** to send them over WhatsApp |
 | Subscription | `subscription_until`, trial end, payment history | **Set expiry date**, record offline payment (amount + cash/QR) |
 | Stats | Leads sent / read, quotes sent, quotes won, median response time, cancels, completion rate, rating, quoted vs paid | — |
 | Trips | Trip history, active trip | Open a trip |
 | Role | Current role | **Override role** both ways, or clear it. Pinned in `role_overrides`, so it survives the 24h session cleanup |
 
 **Seeding a driver** (the cold-start path) is a *Create driver* form here: phone, name, vehicle, base location, radius → inserted with `approval_status = 'approved'`. The driver never signs up and never has to agree to anything. Their first WhatsApp message simply resolves their role from the `drivers` table.
+
+**If a driver skipped a document** at signup, the KYC panel lets the office **upload** the missing Aadhaar front/back or selfie (stored in the private bucket, ≤5 MB), or **ask the driver** to send it again over WhatsApp. The request only works inside the 24h window — outside it, upload instead or the driver must message first. A re-send never erases a document already on file: the signup write only records the steps that produced an image.
 
 **Language** is set per user on both detail pages (ಕನ್ನಡ / English). It is read fresh from the record on every message, so an override takes effect on that user's next message — no session reset needed. Use it when a user chose the wrong option at signup, or when the office knows their preference. A user can also change it themselves by sending "language".
 
@@ -171,7 +173,8 @@ automatic resolution.
 | GET | `/drivers/:id` | Detail |
 | PATCH | `/drivers/:id` | Edit name, vehicle, base location, radius, `preferred_language` (`kannada`\|`english`) |
 | POST | `/drivers/:id/approval` | `{ action: approve \| reject \| suspend }` |
-| POST | `/drivers/:id/kyc` | `{ action: approve \| reject }` |
+| POST | `/drivers/:id/kyc/:slot` | Upload one KYC image (`slot` = `aadhaar_front` \| `aadhaar_back` \| `selfie`). Raw body, `Content-Type: image/*`, ≤5 MB |
+| POST | `/drivers/:id/request-kyc` | Ask the driver to re-send documents on WhatsApp (only inside the 24h window) |
 | POST | `/drivers/:id/subscription` | `{ paid_amount_paise, paid_via, valid_until }` — records offline cash/QR |
 | POST | `/drivers/:id/role` | Office role override (`rider` \| `driver` \| `auto` to clear) |
 | GET | `/riders` | List (`?q=`) |

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { getDriver, patchDriver, recordSubscription, setApproval, setDriverRole } from './api';
+import { getDriver, patchDriver, recordSubscription, requestDriverKyc, setApproval, setDriverRole, uploadDriverKyc } from './api';
 import { DeleteUserButton } from './DeleteUserButton';
 import { KycImage } from './KycImage';
 import { RecoverPanel } from './RecoverPanel';
@@ -29,6 +29,13 @@ interface DriverDetailData {
   subscriptions: Array<{ id: string; paid_amount_paise: number; paid_via: string; valid_until: string }>;
   metrics: { leads_sent: number; quotes_sent: number; quotes_won: number; response_rate: number };
 }
+
+/** The three documents the office can add on a driver's behalf. */
+const KYC_UPLOADS: Array<[string, string]> = [
+  ['aadhaar_front', 'Aadhaar front'],
+  ['aadhaar_back', 'Aadhaar back'],
+  ['selfie', 'Selfie'],
+];
 
 export function DriverDetail() {
   const { id } = useParams();
@@ -121,6 +128,11 @@ export function DriverDetail() {
     );
   }
 
+  async function uploadKyc(slot: string, file: File | undefined) {
+    if (!file) return;
+    await act(() => uploadDriverKyc(d!.id, slot, file));
+  }
+
   return (
     <>
       <h1>
@@ -208,11 +220,40 @@ export function DriverDetail() {
           <KycImage src={d.kyc_aadhaar_url} alt="Aadhaar front" />
           <KycImage src={d.kyc_aadhaar_back_url} alt="Aadhaar back" />
           <KycImage src={d.kyc_selfie_url} alt="Selfie" />
-          {!d.kyc_aadhaar_url && !d.kyc_selfie_url && <p className="muted">No documents uploaded.</p>}
+          {!d.kyc_aadhaar_url && !d.kyc_selfie_url && (
+            <p className="muted">No documents uploaded. Add them below, or ask the driver to send them.</p>
+          )}
           {(d.kyc_aadhaar_url || d.kyc_selfie_url) && (
             <p className="muted">Links expire after 1 hour - reload the page for fresh ones.</p>
           )}
         </div>
+        <div className="row">
+          <span className="muted">Add or replace a document (image, max 5 MB):</span>
+        </div>
+        <div className="row">
+          {KYC_UPLOADS.map(([slot, label]) => (
+            <label key={slot} style={{ marginRight: 16 }}>
+              <span className="muted">{label}</span>
+              <input
+                type="file"
+                accept="image/*"
+                style={{ display: 'block' }}
+                onChange={(e) => void uploadKyc(slot, e.target.files?.[0])}
+              />
+            </label>
+          ))}
+        </div>
+        {d.approval_status !== 'approved' && (
+          <div className="row">
+            <button onClick={() => void act(() => requestDriverKyc(d.id))}>
+              Ask the driver to send documents
+            </button>
+            <span className="muted">
+              Sends the KYC prompt on WhatsApp. Works only within 24h of the driver's
+              last message; otherwise upload above.
+            </span>
+          </div>
+        )}
         <div className="row">
           {d.approval_status === 'approved' ? (
             <>

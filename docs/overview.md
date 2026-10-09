@@ -367,7 +367,7 @@ The point of v1 is to learn, so instrumentation is part of the MVP, not a follow
 
 **One append-only `events` table.** Never `UPDATE`, never `DELETE`. `properties JSONB` means new fields need no migration. Inserts are fire-and-forget and never block the message path.
 
-Event types: `trip_created · lead_sent · lead_stage_sent · lead_delivered · lead_read · lead_dispatch_failed · quote_received · quote_accepted · quote_withdrawn · trip_assigned · pickup_started · driver_arrived · otp_verified · done_marked · completed · drop_location_captured · help_requested · cancelled · expired · disputed · dispute_resolved · rated · fare_reported · user_deleted`
+Event types: `trip_created · lead_sent · lead_stage_sent · lead_delivered · lead_read · lead_dispatch_failed · quote_received · quote_accepted · quote_withdrawn · trip_assigned · pickup_started · driver_arrived · otp_verified · done_marked · completed · drop_location_captured · help_requested · cancelled · expired · disputed · dispute_resolved · rated · fare_reported · kyc_uploaded · kyc_requested · user_deleted`
 
 Timestamps are denormalised onto `trips` so the funnel is a single row scan: `created_at → first_quote_at → assigned_at → arrived_at → started_at → done_at → completed_at`.
 

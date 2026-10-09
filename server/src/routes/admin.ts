@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import express, { Router, Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { v4 as uuid } from 'uuid';
 import { config } from '../config';
@@ -18,6 +18,8 @@ import { notifyDriverOfApproval } from '../lib/notify-driver';
 import { resolveDispute } from '../lib/dispute';
 import { buildSettingsPatch } from '../lib/settings';
 import { signedUrl } from '../lib/storage';
+import { addKycDocument, requestKycDocuments } from '../lib/kyc';
+import { recordEvent } from '../lib/events';
 import { deleteSession, resetSession } from '../state/store';
 import { UnauthorizedError } from '../lib/errors';
 
@@ -254,6 +256,51 @@ adminRouter.post('/drivers/:id/approval', authenticate, async (req: Request, res
   if (error) return res.status(400).json({ error: error.message });
   await notifyDriverOfApproval(String(req.params.id), action as 'approve' | 'reject' | 'suspend');
   res.json(data);
+});
+
+/**
+ * Office uploads a KYC document the driver skipped (or replaces a poor one).
+ *
+ * The image is the raw request body - one file per request - so no multipart
+ * parser is needed. `express.raw` only buffers the accepted image types.
+ */
+adminRouter.post(
+  '/drivers/:id/kyc/:slot',
+  authenticate,
+  express.raw({
+    type: ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'],
+    limit: '6mb',
+  }),
+  async (req: Request, res: Response) => {
+    const buffer = req.body as Buffer;
+    if (!Buffer.isBuffer(buffer) || buffer.byteLength === 0) {
+      return res.status(400).json({ error: 'send the image as the raw request body' });
+    }
+    const driverId = String(req.params.id);
+    const slot = String(req.params.slot);
+    const mime = String(req.header('content-type') ?? '').split(';')[0].trim();
+    const result = await addKycDocument(driverId, slot, buffer, mime);
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    recordEvent('kyc_uploaded', {
+      actorRole: 'office',
+      actorId: config.adminPhone,
+      properties: { driver_id: driverId, slot },
+    });
+    res.json({ ok: true });
+  },
+);
+
+/** Ask the driver to (re)send their documents over WhatsApp. */
+adminRouter.post('/drivers/:id/request-kyc', authenticate, async (req: Request, res: Response) => {
+  const driverId = String(req.params.id);
+  const result = await requestKycDocuments(driverId);
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  recordEvent('kyc_requested', {
+    actorRole: 'office',
+    actorId: config.adminPhone,
+    properties: { driver_id: driverId },
+  });
+  res.json({ ok: true });
 });
 
 adminRouter.post('/drivers/:id/subscription', authenticate, async (req: Request, res: Response) => {
