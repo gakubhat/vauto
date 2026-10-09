@@ -99,6 +99,8 @@ Docs in this repo:
 │   ├── admin.md  testing.md  local-setup.md  deploy.md
 ├── scripts/
 │   ├── tunnel.sh              ngrok + Meta callback URL
+│   ├── build-and-start.sh     build admin + server, serve one origin
+│   ├── deploy.sh              preflight + fly deploy + verify
 │   └── gen-diagrams.mjs       renders diagrams from transitions.json
 ├── server/
 │   ├── src/
